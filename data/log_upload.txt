@@ -1,0 +1,5 @@
+
+🕒 Ejecución: 2025-07-31 18:24:36 (hora Perú)
+
+✅ Descargado y subido: vw_Schedule.csv (llegó a las 2025-07-31 12:46:33 hora Perú)
+✅ Descargado y subido: vw_Schedule_Matriz.csv (llegó a las 2025-07-31 12:48:01 hora Perú)
