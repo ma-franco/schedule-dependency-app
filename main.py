@@ -1,91 +1,161 @@
-import os
+import streamlit as st
 import pandas as pd
 import numpy as np
 import re
 from datetime import datetime
+import io
+import os
 
-# === ENTRADAS ===
+# === RUTAS DE ARCHIVOS CSV ===
 ARCHIVO_SCHEDULE = os.path.join("data", "vw_Schedule.csv")
 ARCHIVO_MATRIZ = os.path.join("data", "vw_Schedule_Matriz.csv")
 
-# === LECTURA DE ARCHIVOS ===
-df_schedule = pd.read_csv(ARCHIVO_SCHEDULE, sep='|', dtype=str)
-df_matriz = pd.read_csv(ARCHIVO_MATRIZ, sep='|', dtype=str)
+# === FUNCIÓN PRINCIPAL: Genera el árbol completo a partir de un layout base ===
+@st.cache_data
+def generar_arbol(layout_base):
+    df = pd.read_csv(ARCHIVO_SCHEDULE, sep='|', dtype=str)
+    df.columns = df.columns.str.strip()
+    df['ScheduleCD'] = pd.to_numeric(df['ScheduleCD'], errors='coerce')
+    df['ScheduleCDPred'] = pd.to_numeric(df['ScheduleCDPred'], errors='coerce')
 
-# === FUNCIONES AUXILIARES ===
-def obtener_multiples(row):
-    if pd.isna(row['Predecesores']):
-        return []
-    candidatos = row['Predecesores'].split('|')
-    encontrados = []
-    for item in candidatos:
-        partes = item.split('~')
-        if len(partes) == 2:
-            nombre, tipo = partes
-            encontrados.append((nombre.strip(), tipo.strip()))
-    return encontrados
+    df_matriz = pd.read_csv(ARCHIVO_MATRIZ, sep='|', dtype=str)
+    df_matriz.columns = df_matriz.columns.str.strip()
+    df_matriz['ScheduleCD'] = pd.to_numeric(df_matriz['ScheduleCD'], errors='coerce')
 
-# === ENRIQUECIMIENTO ===
-df_schedule['NombreLayout'] = df_schedule['NombreLayout'].fillna('')
-df_schedule['TipoSchd'] = df_schedule['TipoSchd'].fillna('')
-df_schedule['Clave_M'] = df_schedule['NombreLayout'] + '__' + df_schedule['TipoSchd']
-clave_a_schedulecd = dict(zip(df_schedule['Clave_M'], df_schedule['ScheduleCD']))
+    # Base
+    df_base = df[df['NombreLayout'] == layout_base][['ScheduleCD', 'ScheduleCDPred', 'Predecesores']].copy()
+    if df_base.empty:
+        return pd.DataFrame()  # No encontrado
 
-# === CONSTRUCCIÓN DE ÁRBOL DE DEPENDENCIAS ===
-relaciones = []
-visitados = set()
+    df_base['TipoRelacion'] = 'BASE'
+    df_base['Nivel'] = 1
 
-def expandir(schedulecd, nivel):
-    if nivel > 100 or schedulecd in visitados:
-        return
-    visitados.add(schedulecd)
-    fila = df_schedule[df_schedule['ScheduleCD'] == schedulecd]
-    if fila.empty:
-        return
-    fila = fila.iloc[0]
-    sucesores = df_schedule[df_schedule['ScheduleCDPred'] == schedulecd]['ScheduleCD'].tolist()
-    for s in sucesores:
-        relaciones.append((schedulecd, 'sucesor', s))
-        expandir(s, nivel + 1)
-    predecesores = df_schedule[df_schedule['ScheduleCD'] == schedulecd]['ScheduleCDPred'].tolist()
-    for p in predecesores:
-        if p != '0':
-            relaciones.append((schedulecd, 'predecesor', p))
-            expandir(p, nivel + 1)
-    fila_m = obtener_multiples(fila)
-    for nombre, tipo in fila_m:
-        clave = nombre + '__' + tipo
-        if clave in clave_a_schedulecd:
-            s_m = clave_a_schedulecd[clave]
-            relaciones.append((schedulecd, 'multiple', s_m))
-            expandir(s_m, nivel + 1)
+    # Predecesores
+    pred_df = df_base.copy()
+    for i in range(1, 10):
+        step_df = df.merge(pred_df, left_on='ScheduleCD', right_on='ScheduleCDPred')
+        step_df = step_df[['ScheduleCD_x', 'ScheduleCDPred_x', 'Predecesores_x']]
+        step_df.columns = ['ScheduleCD', 'ScheduleCDPred', 'Predecesores']
+        step_df['TipoRelacion'] = f'PADRE+{i}'
+        step_df['Nivel'] = i + 1
+        if step_df.empty:
+            break
+        pred_df = pd.concat([pred_df, step_df], ignore_index=True)
 
-# === INICIAR DESDE TODOS LOS LAYOUTS BASE ===
-layouts_base = df_schedule['ScheduleCD'].tolist()
-for layout in layouts_base:
-    expandir(layout, 0)
+    pred_df = pred_df.sort_values(by='Nivel').drop_duplicates(subset='ScheduleCD', keep='first')
 
-# === CONVERTIR A DATAFRAME Y ENRIQUECER ===
-df_rel = pd.DataFrame(relaciones, columns=['Origen', 'Relacion', 'Destino'])
-df_rel = df_rel.merge(df_schedule.add_prefix('Origen_'), left_on='Origen', right_on='Origen_ScheduleCD', how='left')
-df_rel = df_rel.merge(df_schedule.add_prefix('Destino_'), left_on='Destino', right_on='Destino_ScheduleCD', how='left')
-df_rel = df_rel.merge(df_matriz.add_prefix('M_'), left_on='Origen', right_on='M_ScheduleCD', how='left')
+    # Sucesores
+    suc_df = df_base.copy()
+    for i in range(1, 10):
+        step_df = df.merge(suc_df, left_on='ScheduleCDPred', right_on='ScheduleCD')
+        step_df = step_df[['ScheduleCD_x', 'ScheduleCDPred_x', 'Predecesores_x']]
+        step_df.columns = ['ScheduleCD', 'ScheduleCDPred', 'Predecesores']
+        step_df['TipoRelacion'] = f'SUCESOR+{i}'
+        step_df['Nivel'] = i + 1
+        if step_df.empty:
+            break
+        suc_df = pd.concat([suc_df, step_df], ignore_index=True)
 
-# === EXPORTACIÓN CON FECHA Y LOG ===
-os.makedirs("output", exist_ok=True)
-os.makedirs("data", exist_ok=True)
+    suc_df = suc_df.sort_values(by='Nivel').drop_duplicates(subset='ScheduleCD', keep='first')
 
-fecha_actual = datetime.now()
-nombre_archivo = f"arbol_dependencias_matriz_{fecha_actual.strftime('%Y%m%d_%H%M%S')}.csv"
-ruta_salida = os.path.join("output", nombre_archivo)
-df_rel.to_csv(ruta_salida, sep='}<', index=False, encoding='utf-8-sig')
+    # Unión inicial
+    arbol_union_simple = pd.concat([pred_df, suc_df], ignore_index=True)
+    arbol_union_simple = arbol_union_simple.drop_duplicates(subset='ScheduleCD')
 
-# === LOG DE EJECUCIÓN ===
-log_path = os.path.join("data", "log_web_execution.txt")
-with open(log_path, "a", encoding="utf-8") as f:
-    f.write(f"\n==============================\n")
-    f.write(f"🕒 Fecha ejecución: {fecha_actual.strftime('%Y-%m-%d %H:%M:%S')}\n")
-    f.write(f"📄 Archivo generado: {nombre_archivo}\n")
-    f.write(f"🔢 Total relaciones generadas: {len(df_rel)}\n")
+    # Múltiples
+    nombres_layout_usados = df[df['ScheduleCD'].isin(arbol_union_simple['ScheduleCD'])][['ScheduleCD', 'NombreLayout']]
+    nombres_unicos = nombres_layout_usados['NombreLayout'].dropna().unique()
 
-print(f"\n✅ Archivo generado: {ruta_salida}")
+    def contiene_nombre(preds, nombres):
+        if pd.isna(preds):
+            return False
+        return any(re.search(rf'\b{re.escape(nombre)}\b', preds) for nombre in nombres)
+
+    df_multiples = df[df['ScheduleCDPred'] == 0].copy()
+    df_multiples = df_multiples[df_multiples['Predecesores'].apply(lambda x: contiene_nombre(x, nombres_unicos))]
+    df_multiples['TipoRelacion'] = 'MULTIPLE'
+    df_multiples['Nivel'] = 1
+
+    arbol_union = pd.concat([arbol_union_simple, df_multiples], ignore_index=True)
+    arbol_union = arbol_union.drop_duplicates(subset='ScheduleCD')
+
+    # Enriquecer
+    df_info = df[['ScheduleCD', 'NombreLayout', 'TipoSchd', 'UnidadFrecCD', 'FecIni', 'HorIni', 'ValorFrecuenciaAdic']].drop_duplicates(subset='ScheduleCD')
+    resultado = arbol_union.merge(df_info, on='ScheduleCD', how='left', suffixes=('', '_csv'))
+
+    for col in ['NombreLayout', 'TipoSchd', 'UnidadFrecCD', 'FecIni', 'HorIni', 'ValorFrecuenciaAdic']:
+        col_csv = f'{col}_csv'
+        if col_csv in resultado.columns:
+            resultado[col] = resultado.apply(
+                lambda row: row[col_csv] if pd.isna(row[col]) or str(row[col]).strip() in ['', 'NaT', 'nan', 'NaN'] else row[col],
+                axis=1
+            )
+
+    resultado['FecIni'] = pd.to_datetime(resultado['FecIni'], format='%d/%m/%Y', errors='coerce').dt.strftime('%d/%m/%Y')
+    resultado['HorIni'] = pd.to_datetime(resultado['HorIni'], format='%H:%M:%S', errors='coerce').dt.strftime('%H:%M')
+    resultado['FecIni_dt'] = pd.to_datetime(resultado['FecIni'], format='%d/%m/%Y', errors='coerce')
+    hoy = pd.to_datetime(datetime.now().date())
+
+    def evaluar_futuro(fecha):
+        if pd.isna(fecha):
+            return '⚠️ Sin fecha'
+        elif fecha > hoy:
+            dias = (fecha - hoy).days
+            return f'🔵 Sí, futura (faltan {dias} días)'
+        else:
+            return '✅ No'
+
+    resultado['EsFuturo'] = resultado['FecIni_dt'].apply(evaluar_futuro)
+    resultado['UnidadFrecDesc'] = resultado['UnidadFrecCD'].map({
+        '100': 'Minuto', '101': 'Diario', '105': 'Anual',
+        '106': 'A DEMANDA', '102': 'Mensual', '104': 'Semanal', '103': 'Hora'
+    })
+
+    df_matriz = df_matriz[['ScheduleCD', 'SchdMatrixCD', 'FecIniEjec_TS', 'FecFinEjec_TS', 'DesEstado', 'numEjec']].drop_duplicates(subset='ScheduleCD')
+    resultado = resultado.merge(df_matriz, on='ScheduleCD', how='left')
+
+    resultado['Orden'] = resultado['ScheduleCD'].rank(method='dense').astype(int)
+    resultado = resultado.sort_values(by='Orden')
+
+    columnas_finales = [
+        'Orden', 'ScheduleCD', 'NombreLayout', 'TipoSchd',
+        'UnidadFrecDesc', 'FecIni', 'HorIni', 'EsFuturo',
+        'Predecesores', 'ValorFrecuenciaAdic', 'SchdMatrixCD',
+        'FecIniEjec_TS', 'FecFinEjec_TS', 'DesEstado', 'numEjec'
+    ]
+    return resultado[columnas_finales]
+
+# === INTERFAZ DE USUARIO STREAMLIT ===
+st.set_page_config(layout="wide", page_title="Árbol de Dependencias")
+st.title("🌳 Generador de Árbol de Dependencias")
+
+layout_input = st.text_input("🔍 Ingrese el Nombre del Layout base:", "")
+btn_generar = st.button("🚀 Generar Árbol")
+
+if btn_generar and layout_input.strip():
+    with st.spinner("Generando árbol..."):
+        resultado_df = generar_arbol(layout_input.strip())
+        if resultado_df.empty:
+            st.error("❌ No se encontró el Layout proporcionado en el archivo CSV.")
+        else:
+            st.success(f"✅ Árbol generado con {len(resultado_df)} layouts.")
+            st.dataframe(resultado_df, use_container_width=True)
+
+            # Descarga
+            separador = st.selectbox("Selecciona el separador para exportar:", ['|', ';', '},<'])
+            buffer = io.StringIO()
+
+            if separador == '},<':
+                buffer.write('}<'.join(resultado_df.columns) + '\n')
+                for _, row in resultado_df.iterrows():
+                    valores = [str(val) if pd.notna(val) else '' for val in row]
+                    buffer.write('}<'.join(valores) + '\n')
+            else:
+                resultado_df.to_csv(buffer, sep=separador, index=False)
+
+            st.download_button(
+                label="📥 Descargar resultado",
+                data=buffer.getvalue(),
+                file_name=f"arbol_{layout_input.strip()}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv"
+            )
