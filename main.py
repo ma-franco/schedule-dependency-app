@@ -9,8 +9,8 @@ ARCHIVO_SCHEDULE = os.path.join("data", "vw_Schedule.csv")
 ARCHIVO_MATRIZ = os.path.join("data", "vw_Schedule_Matriz.csv")
 
 # === LECTURA DE ARCHIVOS ===
-df_schedule = pd.read_csv(ARCHIVO_SCHEDULE, sep='}<', dtype=str)
-df_matriz = pd.read_csv(ARCHIVO_MATRIZ, sep='}<', dtype=str)
+df_schedule = pd.read_csv(ARCHIVO_SCHEDULE, sep='|', dtype=str)
+df_matriz = pd.read_csv(ARCHIVO_MATRIZ, sep='|', dtype=str)
 
 # === FUNCIONES AUXILIARES ===
 def obtener_multiples(row):
