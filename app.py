@@ -5,7 +5,7 @@ from genarbol_logic import generar_arbol_dependencias
 
 # --- Título y estilo ---
 st.set_page_config(page_title="Árbol de Dependencias", layout="wide")
-st.title("🌳 Árbol de Dependencias de Layouts")
+st.title("🌳 Árbol de Dependencias de Layouts A")
 st.markdown("Ingrese el **NombreLayout** base para generar el árbol completo de dependencias. A")
 
 # --- Input ---
@@ -34,4 +34,5 @@ if layout_base:
 
         except Exception as e:
             st.error(f"❌ Error: {str(e)}")
+
 
