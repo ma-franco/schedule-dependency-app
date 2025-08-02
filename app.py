@@ -6,7 +6,7 @@ from genarbol_logic import generar_arbol_dependencias
 # --- Título y estilo ---
 st.set_page_config(page_title="Árbol de Dependencias", layout="wide")
 st.title("🌳 Árbol de Dependencias de Layouts")
-st.markdown("Ingrese el **NombreLayout** base para generar el árbol completo de dependencias.")
+st.markdown("Ingrese el **NombreLayout** base para generar el árbol completo de dependencias. A")
 
 # --- Input ---
 layout_base = st.text_input("🔎 Nombre del Layout base", "")
@@ -15,7 +15,7 @@ layout_base = st.text_input("🔎 Nombre del Layout base", "")
 if layout_base:
     with st.spinner("⏳ Generando árbol de dependencias..."):
         try:
-            df_resultado = generar_arbol_dependencias(layout_base.strip().upper())
+            df_resultado = generar_arbol_dependencias(layout_base.strip())
             st.success(f"✅ Resultado generado para '{layout_base.upper()}' ({len(df_resultado)} registros)")
             st.dataframe(df_resultado, use_container_width=True)
 
@@ -34,3 +34,4 @@ if layout_base:
 
         except Exception as e:
             st.error(f"❌ Error: {str(e)}")
+
