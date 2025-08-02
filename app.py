@@ -1,11 +1,15 @@
 # app.py
 import streamlit as st
 import pandas as pd
+import datetime
 from genarbol_logic import generar_arbol_dependencias
 
 # --- Título y estilo ---
 st.set_page_config(page_title="Árbol de Dependencias", layout="wide")
 st.title("🌳 Árbol de Dependencias de Layouts A")
+# Mostrar versión visible
+st.caption(f"🕒 Última actualización desplegada: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}")
+
 st.markdown("Ingrese el **NombreLayout** base para generar el árbol completo de dependencias. A")
 
 # --- Input ---
@@ -34,5 +38,6 @@ if layout_base:
 
         except Exception as e:
             st.error(f"❌ Error: {str(e)}")
+
 
 
