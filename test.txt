@@ -1,8 +1,3 @@
-// si quieres mostrar número Yape/Plin en el modal:
-const payNumberTextEl = document.getElementById("payNumberText");
-// usa yape/plin de la tienda si existen; si no, muestra el WhatsApp como referencia
-const modalNumber = currentProduct?.shop?.yape_number
-                 || currentProduct?.shop?.plin_number
-                 || currentProduct?.shop?.whatsapp_number
-                 || "";
-if (payNumberTextEl) payNumberTextEl.textContent = modalNumber || "—";
+const shopWa = toPeruE164(currentProduct?.shop?.whatsapp_number) || "51922540931";
+const text = `Hola, ya realicé el pago por *${currentMethod}* del producto *${currentProduct.name}* por el monto de S/ ${currentProduct.price.toFixed(2)}. Adjunto comprobante.`;
+notifyBtn.href = `https://wa.me/${shopWa}?text=${encodeURIComponent(text)}`;
