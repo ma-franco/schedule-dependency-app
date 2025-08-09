@@ -1,6 +1,6 @@
-// Convierte "922540931" o "51922540931" a "51922540931"
-function toPeruE164(raw) {
-  const digits = String(raw || "").replace(/\D/g, "");
-  if (!digits) return "";                 // sin número
-  return digits.startsWith("51") ? digits : `51${digits}`;
-}
+// Botón WhatsApp (usa el número de la tienda si existe; si no, fallback)
+const shopWa = toPeruE164(product?.shop?.whatsapp_number) || "51922540931";
+const whatsappBtn = document.createElement("a");
+whatsappBtn.href = `https://wa.me/${shopWa}?text=${encodeURIComponent(
+  `Hola, estoy interesado en el producto: ${product.name}`
+)}`;
