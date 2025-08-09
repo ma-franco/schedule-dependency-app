@@ -1,19 +1,112 @@
-function updateWhatsAppLink() {
-  if (!notifyBtn) return;
+# -------------------- routes/public_shop.py --------------------
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session, joinedload
 
-  // Si aún no eligió método o no hay producto, bloquea el botón
-  if (!currentProduct || !currentMethod) {
-    notifyBtn.href = "#";
-    notifyBtn.textContent = "⚠️ Selecciona un método de pago";
-    notifyBtn.className = "block mt-6 w-full bg-gray-800 text-white py-2 rounded text-center font-semibold opacity-50 pointer-events-none";
-    return;
-  }
+from database import get_db
+from crud.shop import get_shop_by_slug
+from app.models.product import ProductModel
+from schemas.product import ProductWithShop, ShopPublic
 
-  // Texto y número cuando sí hay método + producto
-  const text = `Hola, ya realicé el pago por *${currentMethod}* del producto *${currentProduct.name}* por el monto de S/ ${Number(currentProduct.price).toFixed(2)}. Adjunto comprobante.`;
-  const wa = toPeruE164(currentProduct?.shop?.whatsapp_number) || "51922540931";
-  notifyBtn.href = `https://wa.me/${wa}?text=${encodeURIComponent(text)}`;
-  notifyBtn.textContent = "✅ Ya pagué - Notificar por WhatsApp";
-  notifyBtn.className = "block mt-6 w-full text-white py-2 rounded text-center font-semibold bg-green-600 hover:bg-green-700";
-  notifyBtn.classList.remove("pointer-events-none", "opacity-50");
-}
+router = APIRouter(prefix="/shops", tags=["Shops - Public"])
+
+@router.get("/{slug}/products", response_model=list[ProductWithShop])
+def list_products_by_shop(
+    slug: str,
+    db: Session = Depends(get_db),
+    q: str | None = None,          # búsqueda por nombre
+    limit: int = 20,               # paginación simple
+    offset: int = 0,
+):
+    shop = get_shop_by_slug(db, slug)
+    if not shop:
+        raise HTTPException(status_code=404, detail="Tienda no encontrada o inactiva")
+
+    query = (
+        db.query(ProductModel)
+        .options(joinedload(ProductModel.shop))
+        .filter(ProductModel.shop_id == shop.id)
+    )
+    if q:
+        query = query.filter(ProductModel.name.ilike(f"%{q}%"))
+
+    products = query.offset(offset).limit(limit).all()
+
+    shop_public = ShopPublic(
+        name=shop.name,
+        slug=shop.slug,
+        whatsapp_number=shop.whatsapp_number,
+        yape_number=shop.yape_number,
+        plin_number=shop.plin_number,
+        logo_url=shop.logo_url,
+        theme_color=shop.theme_color,
+    )
+
+    return [
+        ProductWithShop(
+            id=p.id,
+            name=p.name,
+            description=p.description,
+            price=p.price,
+            image_url=p.image_url,
+            promotion=p.promotion,
+            stock=p.stock,
+            user_id=p.user_id,
+            shop=shop_public,
+        )
+        for p in products
+    ]
+
+# Detalle de un producto por tienda (slug) + product_id
+@router.get("/{slug}/products/{product_id}", response_model=ProductWithShop)
+def read_product_in_shop(slug: str, product_id: int, db: Session = Depends(get_db)):
+    shop = get_shop_by_slug(db, slug)
+    if not shop:
+        raise HTTPException(status_code=404, detail="Tienda no encontrada o inactiva")
+
+    p = (
+        db.query(ProductModel)
+        .options(joinedload(ProductModel.shop))
+        .filter(
+            ProductModel.shop_id == shop.id,
+            ProductModel.id == product_id
+        )
+        .first()
+    )
+    if not p:
+        raise HTTPException(status_code=404, detail="Producto no encontrado en esta tienda")
+
+    return ProductWithShop(
+        id=p.id,
+        name=p.name,
+        description=p.description,
+        price=p.price,
+        image_url=p.image_url,
+        promotion=p.promotion,
+        stock=p.stock,
+        user_id=p.user_id,
+        shop=ShopPublic(
+            name=shop.name,
+            slug=shop.slug,
+            whatsapp_number=shop.whatsapp_number,
+            yape_number=shop.yape_number,
+            plin_number=shop.plin_number,
+            logo_url=shop.logo_url,
+            theme_color=shop.theme_color,
+        ),
+    )
+
+@router.get("/{slug}")
+def shop_public_info(slug: str, db: Session = Depends(get_db)):
+    shop = get_shop_by_slug(db, slug)
+    if not shop:
+        raise HTTPException(status_code=404, detail="Tienda no encontrada o inactiva")
+    return {
+        "id": shop.id,
+        "name": shop.name,
+        "slug": shop.slug,
+        "logo_url": shop.logo_url,
+        "theme_color": shop.theme_color,
+        "whatsapp_number": shop.whatsapp_number,
+        "yape_number": shop.yape_number,
+        "plin_number": shop.plin_number,
+    }
