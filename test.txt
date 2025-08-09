@@ -1,0 +1,46 @@
+// Reemplaza tu bloque DOMContentLoaded por este:
+
+document.addEventListener("DOMContentLoaded", () => {
+  // primera carga
+  loadProducts();
+
+  // filtros
+  if (searchInput) searchInput.addEventListener("input", applyFilters);
+  if (stockToggle) stockToggle.addEventListener("change", applyFilters);
+
+  // cuando escribas/borres slug, recarga desde el backend
+  const slugInput = document.getElementById("shop-slug");
+  if (slugInput) {
+    let t;
+    slugInput.addEventListener("input", () => {
+      clearTimeout(t);
+      t = setTimeout(() => loadProducts(), 300); // debounce
+    });
+  }
+});
+
+// nueva función
+function loadProducts() {
+  const slugValue = (document.getElementById("shop-slug")?.value || "").trim();
+  const qValue = (searchInput?.value || "").trim();
+
+  // decide endpoint en base al slug
+  let url = "http://127.0.0.1:8000/products";
+  if (slugValue) {
+    // soporta search en el backend si lo agregaste
+    const qs = qValue ? `?q=${encodeURIComponent(qValue)}` : "";
+    url = `http://127.0.0.1:8000/shops/${encodeURIComponent(slugValue)}/products${qs}`;
+  }
+
+  fetch(url)
+    .then((r) => r.json())
+    .then((products) => {
+      allProducts = products || [];
+      applyFilters(); // aplica “solo stock” + búsqueda local
+    })
+    .catch((err) => {
+      console.error("Error al obtener productos:", err);
+      allProducts = [];
+      renderProducts([]);
+    });
+}
