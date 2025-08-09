@@ -1,36 +1,9 @@
-function loadProducts() {
-  const slugValue = (document.getElementById("shop-slug")?.value || "").trim();
-  const qValue = (searchInput?.value || "").trim();
+let allProducts = [];
+const exchangeRate = 3.8;
 
-  let url = "http://127.0.0.1:8000/products";
-  if (slugValue) {
-    const qs = qValue ? `?q=${encodeURIComponent(qValue)}` : "";
-    url = `http://127.0.0.1:8000/shops/${encodeURIComponent(slugValue)}/products${qs}`;
-  }
-
-  console.log("[loadProducts] URL:", url);
-
-  fetch(url, { headers: { "Accept": "application/json" } })
-    .then(async (r) => {
-      console.log("[loadProducts] status:", r.status, r.statusText);
-      if (!r.ok) {
-        const text = await r.text();
-        console.error("[loadProducts] body (no OK):", text);
-        throw new Error(`HTTP ${r.status}`);
-      }
-      const data = await r.json();
-      console.log("[loadProducts] data:", data);
-      return data;
-    })
-    .then((products) => {
-      allProducts = Array.isArray(products) ? products : [];
-      console.log("[loadProducts] allProducts.length:", allProducts.length);
-      applyFilters();
-    })
-    .catch((err) => {
-      console.error("Error al obtener productos:", err);
-      allProducts = [];
-      renderProducts([]);
-      showError("No se pudieron cargar productos. Revisa la consola.");
-    });
+// Función para mostrar errores en el grid
+function showError(msg) {
+  const grid = document.getElementById("products-grid");
+  if (!grid) return;
+  grid.innerHTML = `<div class="text-white bg-red-600/80 p-3 rounded">${msg}</div>`;
 }
