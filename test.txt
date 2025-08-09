@@ -1,6 +1,8 @@
-// Botón WhatsApp (usa el número de la tienda si existe; si no, fallback)
-const shopWa = toPeruE164(product?.shop?.whatsapp_number) || "51922540931";
-const whatsappBtn = document.createElement("a");
-whatsappBtn.href = `https://wa.me/${shopWa}?text=${encodeURIComponent(
-  `Hola, estoy interesado en el producto: ${product.name}`
-)}`;
+// si quieres mostrar número Yape/Plin en el modal:
+const payNumberTextEl = document.getElementById("payNumberText");
+// usa yape/plin de la tienda si existen; si no, muestra el WhatsApp como referencia
+const modalNumber = currentProduct?.shop?.yape_number
+                 || currentProduct?.shop?.plin_number
+                 || currentProduct?.shop?.whatsapp_number
+                 || "";
+if (payNumberTextEl) payNumberTextEl.textContent = modalNumber || "—";
