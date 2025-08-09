@@ -1,12 +1,42 @@
-<!-- Encabezado público de tienda (solo visible cuando hay slug) -->
-<section id="shop-header" class="hidden mb-6 p-4 rounded-xl bg-white/80 shadow">
-  <div class="flex items-center gap-4">
-    <img id="shop-logo" src="" alt="Logo" class="w-14 h-14 rounded-lg object-cover hidden" />
-    <div>
-      <h2 id="shop-name" class="text-2xl font-bold"></h2>
-      <p class="text-sm text-gray-600">
-        WhatsApp: <a id="shop-wa" href="#" target="_blank" class="underline">—</a>
-      </p>
-    </div>
-  </div>
-</section>
+let currentShopInfo = null; // { name, slug, whatsapp_number, logo_url, theme_color }
+function setShopHeader(info) {
+  const header = document.getElementById("shop-header");
+  const logo   = document.getElementById("shop-logo");
+  const nameEl = document.getElementById("shop-name");
+  const waEl   = document.getElementById("shop-wa");
+
+  if (!header || !nameEl || !waEl) return;
+
+  if (!info) {
+    header.classList.add("hidden");
+    return;
+  }
+
+  nameEl.textContent = info.name || info.slug || "Tienda";
+  if (info.logo_url) {
+    logo.src = info.logo_url;
+    logo.classList.remove("hidden");
+  } else {
+    logo.classList.add("hidden");
+  }
+
+  const wa = toPeruE164(info.whatsapp_number);
+  if (wa) {
+    waEl.textContent = `+${wa}`;
+    waEl.href = `https://wa.me/${wa}`;
+  } else {
+    waEl.textContent = "—";
+    waEl.removeAttribute("href");
+  }
+
+  // Color de tema suave (si lo tienes)
+  if (info.theme_color) {
+    header.style.boxShadow = `0 0 30px ${info.theme_color}44`;
+    header.style.border = `1px solid ${info.theme_color}33`;
+  } else {
+    header.style.boxShadow = "";
+    header.style.border = "";
+  }
+
+  header.classList.remove("hidden");
+}
