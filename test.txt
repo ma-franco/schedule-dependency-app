@@ -3,53 +3,9 @@
 /* ================== Estado global ================== */
 let allProducts = [];
 const exchangeRate = 3.8;
+let currentShopInfo = null; // { name, slug, whatsapp_number, logo_url, theme_color }
 
 /* ================== Helpers ================== */
-
-let currentShopInfo = null; // { name, slug, whatsapp_number, logo_url, theme_color }
-function setShopHeader(info) {
-  const header = document.getElementById("shop-header");
-  const logo   = document.getElementById("shop-logo");
-  const nameEl = document.getElementById("shop-name");
-  const waEl   = document.getElementById("shop-wa");
-
-  if (!header || !nameEl || !waEl) return;
-
-  if (!info) {
-    header.classList.add("hidden");
-    return;
-  }
-
-  nameEl.textContent = info.name || info.slug || "Tienda";
-  if (info.logo_url) {
-    logo.src = info.logo_url;
-    logo.classList.remove("hidden");
-  } else {
-    logo.classList.add("hidden");
-  }
-
-  const wa = toPeruE164(info.whatsapp_number);
-  if (wa) {
-    waEl.textContent = `+${wa}`;
-    waEl.href = `https://wa.me/${wa}`;
-  } else {
-    waEl.textContent = "—";
-    waEl.removeAttribute("href");
-  }
-
-  // Color de tema suave (si lo tienes)
-  if (info.theme_color) {
-    header.style.boxShadow = `0 0 30px ${info.theme_color}44`;
-    header.style.border = `1px solid ${info.theme_color}33`;
-  } else {
-    header.style.boxShadow = "";
-    header.style.border = "";
-  }
-
-  header.classList.remove("hidden");
-}
-
-
 // Muestra un mensaje de error en el grid cuando algo sale mal
 function showError(msg) {
   const grid = document.getElementById("products-grid");
@@ -66,14 +22,73 @@ function debounce(fn, ms = 300) {
   };
 }
 
+// Pintar cabecera de tienda (logo, nombre, whatsapp, color)
+function setShopHeader(info) {
+  const header = document.getElementById("shop-header");
+  const logo   = document.getElementById("shop-logo");
+  const nameEl = document.getElementById("shop-name");
+  const waEl   = document.getElementById("shop-wa");
+
+  if (!header || !nameEl || !waEl) return;
+
+  if (!info) {
+    header.classList.add("hidden");
+    // Limpia estilos por si había uno previo
+    header.style.boxShadow = "";
+    header.style.border = "";
+    if (logo) {
+      logo.src = "";
+      logo.classList.add("hidden");
+    }
+    nameEl.textContent = "Tienda";
+    waEl.textContent = "—";
+    waEl.removeAttribute("href");
+    return;
+  }
+
+  nameEl.textContent = info.name || info.slug || "Tienda";
+  if (info.logo_url && logo) {
+    logo.src = info.logo_url;
+    logo.classList.remove("hidden");
+  } else if (logo) {
+    logo.classList.add("hidden");
+  }
+
+  const wa = toPeruE164(info.whatsapp_number);
+  if (wa) {
+    waEl.textContent = `+${wa}`;
+    waEl.href = `https://wa.me/${wa}`;
+  } else {
+    waEl.textContent = "—";
+    waEl.removeAttribute("href");
+  }
+
+  if (info.theme_color) {
+    header.style.boxShadow = `0 0 30px ${info.theme_color}44`;
+    header.style.border = `1px solid ${info.theme_color}33`;
+  } else {
+    header.style.boxShadow = "";
+    header.style.border = "";
+  }
+
+  header.classList.remove("hidden");
+}
+
+// Convierte "922540931" o "51922540931" a "51922540931"
+function toPeruE164(raw) {
+  const digits = String(raw || "").replace(/\D/g, "");
+  if (!digits) return "";
+  return digits.startsWith("51") ? digits : `51${digits}`;
+}
+
 /* ================== Referencias de DOM (algunas pueden no existir) ================== */
 // Modal y controles de pago (opcionales)
-const qrModal       = document.getElementById("qrModal");
-const qrPriceText   = document.getElementById("qrPriceText");
-const notifyBtn     = document.getElementById("notifyWhatsAppBtn");
-const yapePlinInfo  = document.getElementById("yapePlinNumber");
-const payMethodLabel= document.getElementById("payMethodLabel");
-const closeModalBtn = document.getElementById("closeModalBtn");
+const qrModal        = document.getElementById("qrModal");
+const qrPriceText    = document.getElementById("qrPriceText");
+const notifyBtn      = document.getElementById("notifyWhatsAppBtn");
+const yapePlinInfo   = document.getElementById("yapePlinNumber");
+const payMethodLabel = document.getElementById("payMethodLabel");
+const closeModalBtn  = document.getElementById("closeModalBtn");
 
 // Filtros
 const searchInput = document.getElementById("search-input");
@@ -124,31 +139,48 @@ function showBinance(){ hideAllQRs(); document.getElementById("binanceQR")?.clas
 function showYape(){ hideAllQRs(); document.getElementById("yapeQR")?.classList.remove("hidden"); yapePlinInfo?.classList.remove("hidden"); setPayment("Yape","bg-fuchsia-700"); }
 function showPlin(){ hideAllQRs(); document.getElementById("plinQR")?.classList.remove("hidden"); yapePlinInfo?.classList.remove("hidden"); setPayment("Plin","bg-blue-700"); }
 
-/* ================== Carga inicial y listeners ================== */
+/* ================== Cargar info pública de tienda (C) ================== */
+function loadShopInfo(slug) {
+  // Resetea header mientras carga
+  currentShopInfo = null;
+  setShopHeader(null);
+
+  const clean = (slug || "").trim();
+  if (!clean) return;
+
+  fetch(`http://127.0.0.1:8000/shops/${encodeURIComponent(clean)}`)
+    .then(r => (r.ok ? r.json() : Promise.reject()))
+    .then(info => {
+      currentShopInfo = info;
+      setShopHeader(info);
+    })
+    .catch(() => {
+      currentShopInfo = null;
+      setShopHeader(null);
+    });
+}
+
+/* ================== Carga inicial y listeners (D) ================== */
 document.addEventListener("DOMContentLoaded", () => {
-  function loadShopInfo(slug) {
-    currentShopInfo = null;
-    setShopHeader(null);
-    if (!slug) return;
+  // 1) primera carga de productos
+  loadProducts();
 
-    fetch(`http://127.0.0.1:8000/shops/${encodeURIComponent(slug)}`)
-      .then(r => r.ok ? r.json() : Promise.reject())
-      .then(info => {
-        currentShopInfo = info;
-        setShopHeader(info);
-      })
-      .catch(() => {
-        currentShopInfo = null;
-        setShopHeader(null);
-      });
-  }
-  loadProducts(); // primera carga
+  // 2) si hay slug ya escrito, pinta cabecera de tienda
+  const initialSlug = (slugInput?.value || "").trim();
+  if (initialSlug) loadShopInfo(initialSlug);
 
+  // 3) listeners de filtros
   if (searchInput) searchInput.addEventListener("input", applyFilters);
   if (stockToggle) stockToggle.addEventListener("change", applyFilters);
 
+  // 4) al cambiar el slug: recarga productos y cabecera de tienda (D.2 + D.3)
   if (slugInput) {
-    slugInput.addEventListener("input", debounce(() => loadProducts(), 350));
+    const handler = debounce(() => {
+      const s = (slugInput.value || "").trim();
+      loadProducts();
+      loadShopInfo(s);
+    }, 350);
+    slugInput.addEventListener("input", handler);
   }
 });
 
@@ -271,7 +303,7 @@ function renderProducts(products) {
     stock.className = `text-sm font-semibold mb-1 ${product.stock <= 0 ? "text-red-600" : "text-gray-700"}`;
     stock.textContent = product.stock <= 0 ? "Sin stock" : `Stock: ${product.stock}`;
 
-    // Botón WhatsApp (usa el número de la tienda si existe; si no, fallback)
+    // (2) Botón WhatsApp usando el número de la tienda si existe
     const shopWa = toPeruE164(product?.shop?.whatsapp_number) || "51922540931";
     const whatsappBtn = document.createElement("a");
     whatsappBtn.href = `https://wa.me/${shopWa}?text=${encodeURIComponent(
@@ -282,7 +314,7 @@ function renderProducts(products) {
     whatsappBtn.className = "bg-green-500 hover:bg-green-600 text-white font-semibold py-1 px-4 rounded text-center mt-1";
     whatsappBtn.textContent = "WhatsApp";
 
-    // Botón de pago por QR (si existe el modal)
+    // Botón de pago por QR (3) — usa yape/plin/wa de la tienda en el modal
     const qrBtn = document.createElement("button");
     qrBtn.textContent = "Pagar por QR";
     qrBtn.className = `text-white font-semibold py-1 px-4 rounded text-center mt-1 ${product.stock <= 0 ? "bg-gray-400 cursor-not-allowed" : "bg-purple-600 hover:bg-purple-700"}`;
@@ -295,13 +327,11 @@ function renderProducts(products) {
       hideAllQRs();
       qrModal.showModal();
 
-      // si quieres mostrar número Yape/Plin en el modal:
       const payNumberTextEl = document.getElementById("payNumberText");
-      // usa yape/plin de la tienda si existen; si no, muestra el WhatsApp como referencia
       const modalNumber = currentProduct?.shop?.yape_number
-                      || currentProduct?.shop?.plin_number
-                      || currentProduct?.shop?.whatsapp_number
-                      || "";
+                       || currentProduct?.shop?.plin_number
+                       || currentProduct?.shop?.whatsapp_number
+                       || "";
       if (payNumberTextEl) payNumberTextEl.textContent = modalNumber || "—";
 
       if (qrPriceText) {
@@ -333,18 +363,10 @@ function renderProducts(products) {
   });
 }
 
-// Convierte "922540931" o "51922540931" a "51922540931"
-function toPeruE164(raw) {
-  const digits = String(raw || "").replace(/\D/g, "");
-  if (!digits) return "";                 // sin número
-  return digits.startsWith("51") ? digits : `51${digits}`;
-}
-
 /* ================== Link WhatsApp del modal ================== */
 function updateWhatsAppLink() {
   if (!notifyBtn) return;
 
-  // Si aún no eligió método o no hay producto, bloquea el botón
   if (!currentProduct || !currentMethod) {
     notifyBtn.href = "#";
     notifyBtn.textContent = "⚠️ Selecciona un método de pago";
@@ -352,7 +374,6 @@ function updateWhatsAppLink() {
     return;
   }
 
-  // Texto y número cuando sí hay método + producto
   const text = `Hola, ya realicé el pago por *${currentMethod}* del producto *${currentProduct.name}* por el monto de S/ ${Number(currentProduct.price).toFixed(2)}. Adjunto comprobante.`;
   const wa = toPeruE164(currentProduct?.shop?.whatsapp_number) || "51922540931";
   notifyBtn.href = `https://wa.me/${wa}?text=${encodeURIComponent(text)}`;
