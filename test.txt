@@ -1,110 +1,46 @@
-// /frontend/seller/dashboard.js
+// /frontend/seller/login.js
 const BASE_URL = "http://127.0.0.1:8000";
 
-const token = localStorage.getItem("access_token");
-if (!token) {
-  // si no hay token, vuelve a login
-  window.location.href = "/frontend/seller/login.html";
+const form = document.getElementById("login-form");
+const errorMsg = document.getElementById("error-msg");
+const usernameEl = document.getElementById("username");
+const passwordEl = document.getElementById("password");
+
+// Si ya hay token, vamos directo al dashboard
+const existing = localStorage.getItem("access_token");
+if (existing) {
+  window.location.href = "/frontend/seller/dashboard.html";
 }
 
-const logoutBtn = document.getElementById("logout-btn");
-logoutBtn.addEventListener("click", () => {
-  localStorage.removeItem("access_token");
-  window.location.href = "/frontend/seller/login.html";
-});
+form.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  errorMsg.classList.add("hidden");
+  errorMsg.textContent = "";
 
-const shopBox = document.getElementById("shop-box");
-const productsBox = document.getElementById("products-box");
-
-document.getElementById("refresh-shop").addEventListener("click", loadShop);
-document.getElementById("refresh-products").addEventListener("click", loadProducts);
-
-function authHeaders() {
-  return {
-    "Authorization": `Bearer ${token}`,
-    "Content-Type": "application/json",
+  const payload = {
+    username: usernameEl.value.trim(),
+    password: passwordEl.value.trim(),
   };
-}
 
-async function loadShop() {
-  shopBox.textContent = "Cargando información de la tienda...";
   try {
-    const res = await fetch(`${BASE_URL}/seller/shop/`, { headers: authHeaders() });
-    if (res.status === 401) throw new Error("Sesión expirada. Ingresa nuevamente.");
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      throw new Error(data.detail || "Error al obtener la tienda");
-    }
-    const shop = await res.json();
-
-    shopBox.innerHTML = `
-      <div class="grid sm:grid-cols-2 gap-3">
-        <div><span class="font-semibold">Nombre:</span> ${shop.name || "—"}</div>
-        <div><span class="font-semibold">Slug:</span> ${shop.slug || "—"}</div>
-        <div><span class="font-semibold">WhatsApp:</span> ${shop.whatsapp_number || "—"}</div>
-        <div><span class="font-semibold">Yape:</span> ${shop.yape_number || "—"}</div>
-        <div><span class="font-semibold">Plin:</span> ${shop.plin_number || "—"}</div>
-        <div><span class="font-semibold">Estado:</span> ${shop.is_active ? "Activo ✅" : "Inactivo ⛔"}</div>
-      </div>
-    `;
-  } catch (err) {
-    shopBox.innerHTML = `<div class="text-red-600">${err.message}</div>`;
-    if (err.message.includes("expirada")) {
-      setTimeout(() => {
-        localStorage.removeItem("access_token");
-        window.location.href = "/frontend/seller/login.html";
-      }, 1200);
-    }
-  }
-}
-
-async function loadProducts() {
-  productsBox.innerHTML = `<div class="text-sm text-slate-700">Cargando productos...</div>`;
-  try {
-    const res = await fetch(`${BASE_URL}/seller/products/`, { headers: authHeaders() });
-    if (res.status === 401) throw new Error("Sesión expirada. Ingresa nuevamente.");
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      throw new Error(data.detail || "Error al obtener productos");
-    }
-    const products = await res.json();
-    if (!Array.isArray(products) || products.length === 0) {
-      productsBox.innerHTML = `<div class="text-slate-600">No tienes productos aún.</div>`;
-      return;
-    }
-
-    const list = document.createElement("div");
-    list.className = "grid gap-3 sm:grid-cols-2 lg:grid-cols-3";
-
-    products.forEach(p => {
-      const card = document.createElement("div");
-      card.className = "border rounded-lg p-3";
-
-      card.innerHTML = `
-        <div class="font-semibold">${p.name}</div>
-        <div class="text-sm text-slate-600">${p.description || ""}</div>
-        <div class="mt-1 text-red-600 font-bold">S/ ${Number(p.price).toFixed(2)}</div>
-        <div class="text-sm ${p.stock <= 0 ? "text-red-600" : "text-slate-700"}">
-          ${p.stock <= 0 ? "Sin stock" : `Stock: ${p.stock}`}
-        </div>
-        ${p.image_url ? `<img src="${p.image_url}" alt="${p.name}" class="w-full h-32 object-cover rounded mt-2">` : ""}
-      `;
-      list.appendChild(card);
+    const res = await fetch(`${BASE_URL}/user/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
     });
 
-    productsBox.innerHTML = "";
-    productsBox.appendChild(list);
-  } catch (err) {
-    productsBox.innerHTML = `<div class="text-red-600">${err.message}</div>`;
-    if (err.message.includes("expirada")) {
-      setTimeout(() => {
-        localStorage.removeItem("access_token");
-        window.location.href = "/frontend/seller/login.html";
-      }, 1200);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.detail || "Usuario o contraseña inválidos");
     }
-  }
-}
 
-// Carga inicial
-loadShop();
-loadProducts();
+    const data = await res.json();
+    // tu endpoint devuelve {access_token: "...", token_type: "bearer"} (según tus pruebas)
+    localStorage.setItem("access_token", data.access_token);
+    // opcional: guarda info de usuario si la devuelves
+    window.location.href = "/frontend/seller/dashboard.html";
+  } catch (err) {
+    errorMsg.textContent = err.message || "Error al iniciar sesión";
+    errorMsg.classList.remove("hidden");
+  }
+});
