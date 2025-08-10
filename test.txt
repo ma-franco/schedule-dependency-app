@@ -1,91 +1,42 @@
-// frontend/seller/login.js
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Seller | Login</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-900 flex items-center justify-center p-4">
+  <div class="w-full max-w-md bg-white/90 rounded-2xl shadow-xl p-6">
+    <h1 class="text-2xl font-bold text-center mb-6">Acceso Seller</h1>
 
-const form = document.getElementById("loginForm");
-const userEl = document.getElementById("username");
-const passEl = document.getElementById("password");
-const submitBtn = document.getElementById("loginBtn");
-const errorBox = document.getElementById("errorBox");
+    <form id="login-form" class="space-y-4">
+      <div>
+        <label class="block text-sm font-medium mb-1">Usuario</label>
+        <input id="username" type="text" required
+          class="w-full border rounded-lg px-3 py-2 outline-none focus:ring focus:ring-indigo-300" />
+      </div>
+      <div>
+        <label class="block text-sm font-medium mb-1">Contraseña</label>
+        <input id="password" type="password" required
+          class="w-full border rounded-lg px-3 py-2 outline-none focus:ring focus:ring-indigo-300" />
+      </div>
 
-// util: mostrar errores bonitos
-function showError(msg) {
-  if (!errorBox) return;
-  errorBox.textContent = msg || "Ocurrió un error.";
-  errorBox.classList.remove("hidden");
-}
-function clearError() {
-  if (!errorBox) return;
-  errorBox.textContent = "";
-  errorBox.classList.add("hidden");
-}
+      <button type="submit"
+        class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg px-4 py-2">
+        Ingresar
+      </button>
 
-if (form) {
-  form.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    clearError();
+      <p id="error-msg" class="text-red-600 text-sm text-center hidden mt-2"></p>
+    </form>
 
-    const username = userEl?.value?.trim();
-    const password = passEl?.value ?? "";
+    <div class="text-center mt-6">
+      <a href="/frontend/index.html" class="text-sm text-slate-600 hover:underline">
+        ← Volver a la tienda
+      </a>
+    </div>
+  </div>
 
-    if (!username || !password) {
-      showError("Ingresa usuario y contraseña.");
-      return;
-    }
-
-    // deshabilitar botón
-    if (submitBtn) {
-      submitBtn.disabled = true;
-      submitBtn.classList.add("opacity-60", "pointer-events-none");
-    }
-
-    try {
-      // IMPORTANTE: FastAPI espera JSON {"username": "...", "password": "..."}
-      const res = await fetch("http://127.0.0.1:8000/user/login", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Accept": "application/json",
-        },
-        body: JSON.stringify({ username, password }),
-      });
-
-      // 422 = body inválido; 401 = credenciales; 200 = OK
-      const data = await res.json().catch(() => ({}));
-
-      if (!res.ok) {
-        // intenta extraer el mensaje correcto
-        const msg =
-          data?.detail ||
-          data?.message ||
-          (Array.isArray(data) && data[0]?.msg) || // validaciones pydantic
-          "No se pudo iniciar sesión.";
-        showError(String(msg));
-        return;
-      }
-
-      // esperamos algo como {access_token: "...", token_type: "bearer", role: "seller"|...}
-      const token = data?.access_token;
-      const role = data?.role;
-
-      if (!token) {
-        showError("Respuesta inválida del servidor (sin token).");
-        return;
-      }
-
-      // guarda token para siguientes llamadas
-      localStorage.setItem("access_token", token);
-      localStorage.setItem("token_type", data?.token_type || "bearer");
-      if (role) localStorage.setItem("role", role);
-
-      // redirige al dashboard del seller
-      window.location.href = "/frontend/seller/dashboard.html";
-    } catch (err) {
-      console.error(err);
-      showError("Error de red o servidor no disponible.");
-    } finally {
-      if (submitBtn) {
-        submitBtn.disabled = false;
-        submitBtn.classList.remove("opacity-60", "pointer-events-none");
-      }
-    }
-  });
-}
+  <script src="./login.js"></script>
+</body>
+</html>
