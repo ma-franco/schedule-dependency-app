@@ -1,42 +1,75 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Seller | Login</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body class="min-h-screen bg-slate-900 flex items-center justify-center p-4">
-  <div class="w-full max-w-md bg-white/90 rounded-2xl shadow-xl p-6">
-    <h1 class="text-2xl font-bold text-center mb-6">Acceso Seller</h1>
+// /frontend/seller/login.js
 
-    <form id="login-form" class="space-y-4">
-      <div>
-        <label class="block text-sm font-medium mb-1">Usuario</label>
-        <input id="username" type="text" required
-          class="w-full border rounded-lg px-3 py-2 outline-none focus:ring focus:ring-indigo-300" />
-      </div>
-      <div>
-        <label class="block text-sm font-medium mb-1">Contraseña</label>
-        <input id="password" type="password" required
-          class="w-full border rounded-lg px-3 py-2 outline-none focus:ring focus:ring-indigo-300" />
-      </div>
+(() => {
+  const form = document.getElementById("login-form");
+  const userEl = document.getElementById("username");
+  const passEl = document.getElementById("password");
+  const errEl  = document.getElementById("error-msg");
 
-      <button type="submit"
-        class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg px-4 py-2">
-        Ingresar
-      </button>
+  if (!form || !userEl || !passEl) return;
 
-      <p id="error-msg" class="text-red-600 text-sm text-center hidden mt-2"></p>
-    </form>
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    errEl.classList.add("hidden");
+    errEl.textContent = "";
 
-    <div class="text-center mt-6">
-      <a href="/frontend/index.html" class="text-sm text-slate-600 hover:underline">
-        ← Volver a la tienda
-      </a>
-    </div>
-  </div>
+    const username = userEl.value.trim();
+    const password = passEl.value.trim();
+    if (!username || !password) {
+      errEl.textContent = "Completa usuario y contraseña.";
+      errEl.classList.remove("hidden");
+      return;
+    }
 
-  <script src="./login.js"></script>
-</body>
-</html>
+    try {
+      // 🚩 Enviar como x-www-form-urlencoded (lo que espera OAuth2PasswordRequestForm)
+      const body = new URLSearchParams({ username, password });
+
+      const res = await fetch("http://127.0.0.1:8000/user/login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded"
+        },
+        body
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        // Mostrar error bonito
+        let message = "Credenciales inválidas.";
+        if (data?.detail) {
+          if (Array.isArray(data.detail)) {
+            message = data.detail.map(d => d.msg || d.detail || JSON.stringify(d)).join(" / ");
+          } else if (typeof data.detail === "string") {
+            message = data.detail;
+          }
+        }
+        errEl.textContent = message;
+        errEl.classList.remove("hidden");
+        return;
+        }
+
+      // Esperamos algo tipo: { access_token: "...", token_type: "bearer", role: "seller" }
+      const { access_token, token_type, role } = data;
+
+      if (!access_token) {
+        errEl.textContent = "Respuesta inesperada del servidor.";
+        errEl.classList.remove("hidden");
+        return;
+      }
+
+      // Guardar token y role
+      localStorage.setItem("auth_token", access_token);
+      localStorage.setItem("token_type", token_type || "bearer");
+      localStorage.setItem("user_role", role || "");
+
+      // Redirigir al dashboard del seller
+      window.location.href = "/frontend/seller/dashboard.html";
+    } catch (err) {
+      console.error(err);
+      errEl.textContent = "No se pudo conectar con el servidor.";
+      errEl.classList.remove("hidden");
+    }
+  });
+})();
