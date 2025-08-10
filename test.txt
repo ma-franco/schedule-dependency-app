@@ -1,53 +1,91 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Seller | Dashboard</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body class="min-h-screen bg-slate-100">
-  <!-- Navbar -->
-  <header class="bg-white border-b">
-    <div class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
-      <h1 class="text-xl font-bold">Panel del Seller</h1>
-      <div class="flex items-center gap-3">
-        <a href="/frontend/index.html" class="text-sm text-slate-600 hover:underline">Ver tienda pública</a>
-        <button id="logout-btn" class="bg-red-500 hover:bg-red-600 text-white text-sm font-semibold rounded px-3 py-1.5">
-          Cerrar sesión
-        </button>
-      </div>
-    </div>
-  </header>
+// frontend/seller/login.js
 
-  <main class="max-w-6xl mx-auto p-4 space-y-6">
-    <!-- Info de tienda -->
-    <section class="bg-white rounded-xl shadow p-4">
-      <div class="flex items-center justify-between">
-        <h2 class="text-lg font-semibold">Mi tienda</h2>
-        <button id="refresh-shop" class="text-sm bg-slate-800 hover:bg-slate-900 text-white rounded px-3 py-1.5">
-          Refrescar
-        </button>
-      </div>
-      <div id="shop-box" class="mt-3 text-sm text-slate-700">
-        Cargando información de la tienda...
-      </div>
-    </section>
+const form = document.getElementById("loginForm");
+const userEl = document.getElementById("username");
+const passEl = document.getElementById("password");
+const submitBtn = document.getElementById("loginBtn");
+const errorBox = document.getElementById("errorBox");
 
-    <!-- Mis productos -->
-    <section class="bg-white rounded-xl shadow p-4">
-      <div class="flex items-center justify-between">
-        <h2 class="text-lg font-semibold">Mis productos</h2>
-        <button id="refresh-products" class="text-sm bg-slate-800 hover:bg-slate-900 text-white rounded px-3 py-1.5">
-          Refrescar
-        </button>
-      </div>
-      <div id="products-box" class="mt-3">
-        <div class="text-sm text-slate-700">Cargando productos...</div>
-      </div>
-    </section>
-  </main>
+// util: mostrar errores bonitos
+function showError(msg) {
+  if (!errorBox) return;
+  errorBox.textContent = msg || "Ocurrió un error.";
+  errorBox.classList.remove("hidden");
+}
+function clearError() {
+  if (!errorBox) return;
+  errorBox.textContent = "";
+  errorBox.classList.add("hidden");
+}
 
-  <script src="./dashboard.js"></script>
-</body>
-</html>
+if (form) {
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    clearError();
+
+    const username = userEl?.value?.trim();
+    const password = passEl?.value ?? "";
+
+    if (!username || !password) {
+      showError("Ingresa usuario y contraseña.");
+      return;
+    }
+
+    // deshabilitar botón
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.classList.add("opacity-60", "pointer-events-none");
+    }
+
+    try {
+      // IMPORTANTE: FastAPI espera JSON {"username": "...", "password": "..."}
+      const res = await fetch("http://127.0.0.1:8000/user/login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+        },
+        body: JSON.stringify({ username, password }),
+      });
+
+      // 422 = body inválido; 401 = credenciales; 200 = OK
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        // intenta extraer el mensaje correcto
+        const msg =
+          data?.detail ||
+          data?.message ||
+          (Array.isArray(data) && data[0]?.msg) || // validaciones pydantic
+          "No se pudo iniciar sesión.";
+        showError(String(msg));
+        return;
+      }
+
+      // esperamos algo como {access_token: "...", token_type: "bearer", role: "seller"|...}
+      const token = data?.access_token;
+      const role = data?.role;
+
+      if (!token) {
+        showError("Respuesta inválida del servidor (sin token).");
+        return;
+      }
+
+      // guarda token para siguientes llamadas
+      localStorage.setItem("access_token", token);
+      localStorage.setItem("token_type", data?.token_type || "bearer");
+      if (role) localStorage.setItem("role", role);
+
+      // redirige al dashboard del seller
+      window.location.href = "/frontend/seller/dashboard.html";
+    } catch (err) {
+      console.error(err);
+      showError("Error de red o servidor no disponible.");
+    } finally {
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.classList.remove("opacity-60", "pointer-events-none");
+      }
+    }
+  });
+}
