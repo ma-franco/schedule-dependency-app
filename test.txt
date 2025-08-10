@@ -1,75 +1,71 @@
 // /frontend/seller/login.js
-
 (() => {
-  const form = document.getElementById("login-form");
+  const form   = document.getElementById("login-form");
   const userEl = document.getElementById("username");
   const passEl = document.getElementById("password");
   const errEl  = document.getElementById("error-msg");
 
-  if (!form || !userEl || !passEl) return;
+  if (!form) return;
+
+  const showError = (msg) => {
+    if (!errEl) return;
+    errEl.textContent = msg || "Error de autenticación.";
+    errEl.classList.remove("hidden");
+  };
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
-    errEl.classList.add("hidden");
-    errEl.textContent = "";
+    if (errEl) { errEl.classList.add("hidden"); errEl.textContent = ""; }
 
-    const username = userEl.value.trim();
-    const password = passEl.value.trim();
+    const username = (userEl?.value || "").trim();
+    const password = (passEl?.value || "").trim();
     if (!username || !password) {
-      errEl.textContent = "Completa usuario y contraseña.";
-      errEl.classList.remove("hidden");
+      showError("Completa usuario y contraseña.");
       return;
     }
 
     try {
-      // 🚩 Enviar como x-www-form-urlencoded (lo que espera OAuth2PasswordRequestForm)
+      // IMPORTANTE: enviar como x-www-form-urlencoded (lo que espera OAuth2PasswordRequestForm)
       const body = new URLSearchParams({ username, password });
 
       const res = await fetch("http://127.0.0.1:8000/user/login", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded"
-        },
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body
       });
 
-      const data = await res.json().catch(() => ({}));
+      let data = null;
+      try { data = await res.json(); } catch { data = null; }
 
       if (!res.ok) {
-        // Mostrar error bonito
         let message = "Credenciales inválidas.";
-        if (data?.detail) {
-          if (Array.isArray(data.detail)) {
-            message = data.detail.map(d => d.msg || d.detail || JSON.stringify(d)).join(" / ");
-          } else if (typeof data.detail === "string") {
-            message = data.detail;
+        const d = data?.detail;
+        if (d) {
+          if (Array.isArray(d)) {
+            message = d.map(x => x.msg || x.detail || JSON.stringify(x)).join(" / ");
+          } else if (typeof d === "string") {
+            message = d;
           }
         }
-        errEl.textContent = message;
-        errEl.classList.remove("hidden");
-        return;
-        }
-
-      // Esperamos algo tipo: { access_token: "...", token_type: "bearer", role: "seller" }
-      const { access_token, token_type, role } = data;
-
-      if (!access_token) {
-        errEl.textContent = "Respuesta inesperada del servidor.";
-        errEl.classList.remove("hidden");
+        showError(message);
         return;
       }
 
-      // Guardar token y role
+      const { access_token, token_type, role } = (data || {});
+      if (!access_token) {
+        showError("Respuesta inesperada del servidor.");
+        return;
+      }
+
       localStorage.setItem("auth_token", access_token);
       localStorage.setItem("token_type", token_type || "bearer");
-      localStorage.setItem("user_role", role || "");
+      if (role) localStorage.setItem("user_role", role);
 
-      // Redirigir al dashboard del seller
-      window.location.href = "/frontend/seller/dashboard.html";
+      // Redirige al panel
+      window.location.replace("/frontend/seller/dashboard.html");
     } catch (err) {
       console.error(err);
-      errEl.textContent = "No se pudo conectar con el servidor.";
-      errEl.classList.remove("hidden");
+      showError("No se pudo conectar con el servidor.");
     }
   });
 })();
