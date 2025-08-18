@@ -1,471 +1,205 @@
-// /frontend/js/main.js
-
-/* ================== Estado global ================== */
-let allProducts = [];
-const exchangeRate = 3.8;
-let currentShopInfo = null; // { name, slug, whatsapp_number, logo_url, theme_color }
-
-/* ================== Helpers ================== */
-// Muestra un mensaje de error en el grid cuando algo sale mal
-function showError(msg) {
-  const grid = document.getElementById("products-grid");
-  if (!grid) return;
-  grid.innerHTML = `<div class="text-white bg-red-600/80 p-3 rounded text-center">${msg}</div>`;
-}
-
-// Debounce simple para inputs
-function debounce(fn, ms = 300) {
-  let t;
-  return (...args) => {
-    clearTimeout(t);
-    t = setTimeout(() => fn(...args), ms);
-  };
-}
-
-// Pintar cabecera de tienda (logo, nombre, whatsapp, color)
-function setShopHeader(info) {
-  const header = document.getElementById("shop-header");
-  const logo   = document.getElementById("shop-logo");
-  const nameEl = document.getElementById("shop-name");
-  const waEl   = document.getElementById("shop-wa");
-
-  if (!header || !nameEl || !waEl) return;
-
-  if (!info) {
-    header.classList.add("hidden");
-    // Limpia estilos por si había uno previo
-    header.style.boxShadow = "";
-    header.style.border = "";
-    if (logo) {
-      logo.src = "";
-      logo.classList.add("hidden");
-    }
-    nameEl.textContent = "Tienda";
-    waEl.textContent = "—";
-    waEl.removeAttribute("href");
-    return;
-  }
-
-  nameEl.textContent = info.name || info.slug || "Tienda";
-  if (info.logo_url && logo) {
-    logo.src = info.logo_url;
-    logo.classList.remove("hidden");
-  } else if (logo) {
-    logo.classList.add("hidden");
-  }
-
-  const wa = toPeruE164(info.whatsapp_number);
-  if (wa) {
-    waEl.textContent = `+${wa}`;
-    waEl.href = `https://wa.me/${wa}`;
-  } else {
-    waEl.textContent = "—";
-    waEl.removeAttribute("href");
-  }
-
-  if (info.theme_color) {
-    header.style.boxShadow = `0 0 30px ${info.theme_color}44`;
-    header.style.border = `1px solid ${info.theme_color}33`;
-  } else {
-    header.style.boxShadow = "";
-    header.style.border = "";
-  }
-
-  header.classList.remove("hidden");
-}
-
-// Convierte "922540931" o "51922540931" a "51922540931"
-function toPeruE164(raw) {
-  const digits = String(raw || "").replace(/\D/g, "");
-  if (!digits) return "";
-  return digits.startsWith("51") ? digits : `51${digits}`;
-}
-
-/* ================== Referencias de DOM (algunas pueden no existir) ================== */
-// Modal y controles de pago (opcionales)
-const qrModal        = document.getElementById("qrModal");
-const qrPriceText    = document.getElementById("qrPriceText");
-const notifyBtn      = document.getElementById("notifyWhatsAppBtn");
-const yapePlinInfo   = document.getElementById("yapePlinNumber");
-const payMethodLabel = document.getElementById("payMethodLabel");
-const closeModalBtn  = document.getElementById("closeModalBtn");
-
-// Filtros
-const searchInput = document.getElementById("search-input");
-const stockToggle = document.getElementById("stockOnlyToggle");
-const slugInput   = document.getElementById("shop-slug");
-
-// Datos del comprador (en el modal)
-const buyerNameInput  = document.getElementById("buyerName");
-const buyerPhoneInput = document.getElementById("buyerPhone");
-
-let currentProduct = null;
-let currentMethod  = null;
-
-/* ================== Modal: cerrar con animación (si existe) ================== */
-if (closeModalBtn && qrModal) {
-  closeModalBtn.addEventListener("click", () => {
-    qrModal.classList.add("dialog-closing");
-    qrModal.addEventListener(
-      "animationend",
-      () => {
-        qrModal.classList.remove("dialog-closing");
-        qrModal.close();
-      },
-      { once: true }
-    );
-  });
-}
-
-/* ================== Métodos de pago (si usas modal) ================== */
-function setPayment(method, colorClass) {
-  if (!notifyBtn) return;
-  currentMethod = method;
-  if (payMethodLabel) payMethodLabel.textContent = method;
-
-  notifyBtn.className = `block mt-6 w-full text-white py-2 rounded text-center font-semibold ${colorClass} hover:${colorClass.replace("500","600")}`;
-  notifyBtn.classList.remove("pointer-events-none", "opacity-50", "bg-gray-800");
-  notifyBtn.disabled = false;
-  notifyBtn.textContent = "✅ Ya pagué - Notificar por WhatsApp";
-  updateWhatsAppLink();
-}
-
-function hideAllQRs() {
-  ["izipayQR","binanceQR","yapeQR","plinQR"].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.classList.add("hidden");
-  });
-  if (yapePlinInfo) yapePlinInfo.classList.add("hidden");
-}
-
-function showIzipay(){ hideAllQRs(); document.getElementById("izipayQR")?.classList.remove("hidden"); yapePlinInfo?.classList.add("hidden"); setPayment("Izipay","bg-yellow-500"); }
-function showBinance(){ hideAllQRs(); document.getElementById("binanceQR")?.classList.remove("hidden"); yapePlinInfo?.classList.add("hidden"); setPayment("Binance","bg-gray-700"); }
-function showYape(){ hideAllQRs(); document.getElementById("yapeQR")?.classList.remove("hidden"); yapePlinInfo?.classList.remove("hidden"); setPayment("Yape","bg-fuchsia-700"); }
-function showPlin(){ hideAllQRs(); document.getElementById("plinQR")?.classList.remove("hidden"); yapePlinInfo?.classList.remove("hidden"); setPayment("Plin","bg-blue-700"); }
-
-/* ================== Cargar info pública de tienda (C) ================== */
-function loadShopInfo(slug) {
-  // Resetea header mientras carga
-  currentShopInfo = null;
-  setShopHeader(null);
-
-  const clean = (slug || "").trim();
-  if (!clean) return;
-
-  fetch(`http://127.0.0.1:8000/shops/${encodeURIComponent(clean)}`)
-    .then(r => (r.ok ? r.json() : Promise.reject()))
-    .then(info => {
-      currentShopInfo = info;
-      setShopHeader(info);
-    })
-    .catch(() => {
-      currentShopInfo = null;
-      setShopHeader(null);
-    });
-}
-
-/* ================== Carga inicial y listeners (D) ================== */
-document.addEventListener("DOMContentLoaded", () => {
-  // 1) primera carga de productos
-  loadProducts();
-
-  // 2) si hay slug ya escrito, pinta cabecera de tienda
-  const initialSlug = (slugInput?.value || "").trim();
-  if (initialSlug) loadShopInfo(initialSlug);
-
-  // 3) listeners de filtros
-  if (searchInput) searchInput.addEventListener("input", applyFilters);
-  if (stockToggle) stockToggle.addEventListener("change", applyFilters);
-
-  // 4) al cambiar el slug: recarga productos y cabecera de tienda (D.2 + D.3)
-  if (slugInput) {
-    const handler = debounce(() => {
-      const s = (slugInput.value || "").trim();
-      loadProducts();
-      loadShopInfo(s);
-    }, 350);
-    slugInput.addEventListener("input", handler);
-  }
-});
-
-/* ================== Fetch productos (con slug opcional) ================== */
-function loadProducts() {
-  const slugValue = (slugInput?.value || "").trim();
-  const qValue    = (searchInput?.value || "").trim();
-
-  let url = "http://127.0.0.1:8000/products";
-  if (slugValue) {
-    const qs = qValue ? `?q=${encodeURIComponent(qValue)}` : "";
-    url = `http://127.0.0.1:8000/shops/${encodeURIComponent(slugValue)}/products${qs}`;
-  }
-
-  fetch(url)
-    .then(r => {
-      if (!r.ok) throw new Error("Respuesta no OK del servidor");
-      return r.json();
-    })
-    .then(products => {
-      allProducts = Array.isArray(products) ? products : [];
-      if (!allProducts.length) {
-        showError(slugValue ? "No se encontraron productos para esta tienda." : "No hay productos para mostrar.");
-        return;
-      }
-      applyFilters();
-    })
-    .catch(err => {
-      console.error("Error al obtener productos:", err);
-      showError("Hubo un problema al cargar los productos. Intenta nuevamente.");
-    });
-}
-
-/* ================== Filtro + orden ================== */
-function applyFilters() {
-  const query = (searchInput?.value || "").trim().toLowerCase();
-  const stockOnly = !!stockToggle?.checked;
-
-  let filtered = allProducts.filter(p =>
-    p.name.toLowerCase().includes(query) ||
-    p.description.toLowerCase().includes(query)
-  );
-
-  if (stockOnly) filtered = filtered.filter(p => p.stock > 0);
-
-  const sorted = [...filtered].sort((a,b) => (b.promotion === true) - (a.promotion === true));
-  renderProducts(sorted);
-}
-
-/* ================== Pintado de cards ================== */
-function renderProducts(products) {
-  const grid = document.getElementById("products-grid");
-  if (!grid) return;
-  grid.innerHTML = "";
-
-  products.forEach(product => {
-    const card = document.createElement("div");
-    card.className = `
-      relative
-      ${product.promotion ? "glow-card" : ""}
-      bg-white rounded-2xl hover:scale-[1.02]
-      transition-transform duration-300
-      p-4 flex flex-col w-full max-w-xs
-      opacity-0 translate-y-4
-    `;
-
-    if (product.promotion) {
-      const promoBadge = document.createElement("div");
-      promoBadge.textContent = "🎉 ¡PROMO!";
-      promoBadge.className = "absolute top-2 left-2 bg-yellow-400 text-black text-xs font-bold px-2 py-1 rounded shadow";
-      card.appendChild(promoBadge);
-    }
-
-    const image = document.createElement("img");
-    image.src = product.image_url;
-    image.alt = product.name;
-    image.className = "w-full h-40 object-cover rounded-lg mb-3";
-
-    const name = document.createElement("h2");
-    name.className = "text-lg font-semibold mb-1";
-
-    const q = (searchInput?.value || "").trim().toLowerCase();
-    if (q && product.name.toLowerCase().includes(q)) {
-      name.innerHTML = product.name.replace(new RegExp(`(${q})`, "gi"), "<mark>$1</mark>");
-    } else {
-      name.textContent = product.name;
-    }
-
-    const desc = document.createElement("p");
-    desc.textContent = product.description;
-    desc.className = "text-sm text-gray-600 mb-2 w-full overflow-hidden whitespace-nowrap text-ellipsis";
-
-    const toggleBtn = document.createElement("button");
-    toggleBtn.textContent = "Ver más";
-    toggleBtn.className = "text-sm text-blue-600 underline mb-2 text-left w-fit hidden transition-opacity duration-200";
-    toggleBtn.style.minHeight = "1.5rem";
-
-    requestAnimationFrame(() => {
-      setTimeout(() => {
-        toggleBtn.classList.remove("hidden");
-        toggleBtn.style.visibility = desc.scrollWidth > desc.clientWidth ? "visible" : "hidden";
-        card.classList.remove("opacity-0","translate-y-4");
-        card.classList.add("opacity-100","translate-y-0");
-      }, 0);
-    });
-
-    toggleBtn.addEventListener("click", () => {
-      const isTruncated = desc.classList.contains("overflow-hidden");
-      desc.className = isTruncated
-        ? "text-sm text-gray-600 mb-2 w-full whitespace-normal"
-        : "text-sm text-gray-600 mb-2 w-full overflow-hidden whitespace-nowrap text-ellipsis";
-      toggleBtn.textContent = isTruncated ? "Ver menos" : "Ver más";
-    });
-
-    const price = document.createElement("p");
-    price.className = "text-red-600 text-lg font-bold mb-3";
-    price.textContent = `S/ ${Number(product.price).toFixed(2)}`;
-
-    const stock = document.createElement("p");
-    stock.className = `text-sm font-semibold mb-1 ${product.stock <= 0 ? "text-red-600" : "text-gray-700"}`;
-    stock.textContent = product.stock <= 0 ? "Sin stock" : `Stock: ${product.stock}`;
-
-    // Botón WhatsApp usando el número de la tienda si existe
-    const shopWa = toPeruE164(product?.shop?.whatsapp_number) || "51922540931";
-    const whatsappBtn = document.createElement("a");
-    whatsappBtn.href = `https://wa.me/${shopWa}?text=${encodeURIComponent(
-      `Hola, estoy interesado en el producto: ${product.name}`
-    )}`;
-    whatsappBtn.target = "_blank";
-    whatsappBtn.rel = "noopener noreferrer";
-    whatsappBtn.className = "bg-green-500 hover:bg-green-600 text-white font-semibold py-1 px-4 rounded text-center mt-1";
-    whatsappBtn.textContent = "WhatsApp";
-
-    // Botón de pago por QR — usa yape/plin/wa de la tienda en el modal
-    const qrBtn = document.createElement("button");
-    qrBtn.textContent = "Pagar por QR";
-    qrBtn.className = `text-white font-semibold py-1 px-4 rounded text-center mt-1 ${product.stock <= 0 ? "bg-gray-400 cursor-not-allowed" : "bg-purple-600 hover:bg-purple-700"}`;
-    qrBtn.disabled = product.stock <= 0;
-    qrBtn.onclick = () => {
-      if (!qrModal || product.stock <= 0) return;
-
-      currentProduct = product;
-      currentMethod  = null;
-      hideAllQRs();
-      qrModal.showModal();
-
-      // Resetea inputs del comprador
-      if (buyerNameInput)  buyerNameInput.value  = "";
-      if (buyerPhoneInput) buyerPhoneInput.value = "";
-
-      // Número a mostrar (yape/plin/wa)
-      const payNumberTextEl = document.getElementById("payNumberText");
-      const modalNumber = currentProduct?.shop?.yape_number
-                       || currentProduct?.shop?.plin_number
-                       || currentProduct?.shop?.whatsapp_number
-                       || "";
-      if (payNumberTextEl) payNumberTextEl.textContent = modalNumber || "—";
-
-      if (qrPriceText) {
-        qrPriceText.innerHTML = `S/ ${Number(product.price).toFixed(2)}<br><span class='text-sm text-gray-600'>(~ ${(product.price / exchangeRate).toFixed(2)} USDT)</span>`;
-      }
-
-      if (notifyBtn) {
-        notifyBtn.disabled = true;
-        notifyBtn.textContent = "⚠️ Selecciona un método de pago";
-        notifyBtn.className = "block mt-6 w-full bg-gray-800 text-white py-2 rounded text-center font-semibold opacity-50 pointer-events-none";
-        notifyBtn.href = "#";
-      }
-    };
-
-    const buttonContainer = document.createElement("div");
-    buttonContainer.className = "flex flex-col gap-2 mt-2";
-    buttonContainer.appendChild(whatsappBtn);
-    buttonContainer.appendChild(qrBtn);
-
-    card.appendChild(image);
-    card.appendChild(name);
-    card.appendChild(desc);
-    card.appendChild(toggleBtn);
-    card.appendChild(price);
-    card.appendChild(stock);
-    card.appendChild(buttonContainer);
-
-    grid.appendChild(card);
-  });
-}
-
-/* ================== Link WhatsApp del modal (solo estado visual) ================== */
-function updateWhatsAppLink() {
-  if (!notifyBtn) return;
-
-  if (!currentProduct || !currentMethod) {
-    notifyBtn.href = "#";
-    notifyBtn.textContent = "⚠️ Selecciona un método de pago";
-    notifyBtn.className = "block mt-6 w-full bg-gray-800 text-white py-2 rounded text-center font-semibold opacity-50 pointer-events-none";
-    return;
-  }
-
-  // Habilitar visualmente. El click real creará la orden (ver listener abajo).
-  notifyBtn.textContent = "✅ Ya pagué - Notificar por WhatsApp";
-  notifyBtn.className = "block mt-6 w-full text-white py-2 rounded text-center font-semibold bg-green-600 hover:bg-green-700";
-  notifyBtn.classList.remove("pointer-events-none", "opacity-50");
-}
-
-/* ================== Crear orden + abrir WhatsApp ================== */
-if (notifyBtn && qrModal) {
-  notifyBtn.addEventListener("click", async (e) => {
-    e.preventDefault(); // siempre manejamos el click aquí
-
-    if (!currentProduct || !currentMethod) return;
-
-    // Validar nombre
-    const buyer_name = (buyerNameInput?.value || "").trim();
-    if (!buyer_name || buyer_name.length < 2) {
-      alert("Por favor ingresa tu nombre (mín. 2 caracteres).");
-      buyerNameInput?.focus();
-      return;
-    }
-    const buyer_phone = (buyerPhoneInput?.value || "").trim();
-
-    // Mapear método UI -> backend PaymentMethod
-    function mapMethod(m) {
-      const s = (m || "").toLowerCase();
-      if (s === "yape") return "yape";
-      if (s === "plin") return "plin";
-      if (s === "izipay") return "card";
-      if (s === "binance") return "bank";
-      return "cash";
-    }
-
-    // bloquear para evitar doble clic
-    notifyBtn.textContent = "Creando orden…";
-    notifyBtn.classList.add("opacity-70", "pointer-events-none");
-
-    try {
-      const payload = {
-        product_id: currentProduct.id,
-        buyer_name,
-        buyer_phone,
-        payment_method: mapMethod(currentMethod),
-        amount: Number(currentProduct.price), // backend lo fuerza al precio real
-        tx_ref: `web-${Date.now()}`,
-      };
-
-      const res = await fetch("http://127.0.0.1:8000/orders/", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      const data = await res.json().catch(() => null);
-      if (!res.ok) {
-        const msg = data?.detail || "No se pudo crear la orden.";
-        alert(msg);
-        notifyBtn.textContent = "✅ Ya pagué - Notificar por WhatsApp";
-        notifyBtn.classList.remove("opacity-70", "pointer-events-none");
-        return;
-      }
-
-      // Construir mensaje con #orden
-      const shopWa = toPeruE164(currentProduct?.shop?.whatsapp_number) || "51922540931";
-      const text = `Hola, ya realicé el pago por *${currentMethod}* del producto *${currentProduct.name}* por S/ ${Number(currentProduct.price).toFixed(2)}.\nOrden #${data.id} • Ref: ${payload.tx_ref}`;
-      const waUrl = `https://wa.me/${shopWa}?text=${encodeURIComponent(text)}`;
-
-      // Abrir WhatsApp y cerrar modal
-      window.open(waUrl, "_blank", "noopener,noreferrer");
-
-      qrModal.classList.add("dialog-closing");
-      qrModal.addEventListener(
-        "animationend",
-        () => {
-          qrModal.classList.remove("dialog-closing");
-          qrModal.close();
-        },
-        { once: true }
-      );
-    } catch (err) {
-      console.error(err);
-      alert("Error inesperado creando la orden.");
-      notifyBtn.textContent = "✅ Ya pagué - Notificar por WhatsApp";
-      notifyBtn.classList.remove("opacity-70", "pointer-events-none");
-    }
-  });
-}
+# crud/order.py
+from typing import List, Optional
+from datetime import date, datetime, timedelta
+
+from sqlalchemy.orm import Session
+from sqlalchemy import desc, or_
+from sqlalchemy.exc import IntegrityError
+
+from app.models.order import Order
+from app.models.product import ProductModel
+from app.models.shop import Shop as ShopModel
+from schemas.order import OrderCreate, OrderUpdate
+
+
+# --- helpers internos ---
+
+def _get_active_shop_by_owner(db: Session, owner_user_id: int) -> Optional[ShopModel]:
+    return (
+        db.query(ShopModel)
+        .filter(ShopModel.owner_user_id == owner_user_id, ShopModel.is_active == 1)
+        .first()
+    )
+
+def _product_belongs_to_shop(db: Session, product_id: int, shop_id: int) -> bool:
+    q = (
+        db.query(ProductModel.id)
+        .filter(ProductModel.id == product_id, ProductModel.shop_id == shop_id)
+        .first()
+    )
+    return q is not None
+
+
+# --- CRUD ---
+
+def create_order(db: Session, owner_user_id: int, payload: OrderCreate) -> Order:
+    shop = _get_active_shop_by_owner(db, owner_user_id)
+    if not shop:
+        raise ValueError("No tienes una tienda activa")
+
+    # Seguridad adicional (además del trigger): el producto debe ser de tu tienda
+    if not _product_belongs_to_shop(db, payload.product_id, shop.id):
+        raise ValueError("El producto no pertenece a tu tienda")
+
+    order = Order(
+        shop_id=shop.id,
+        product_id=payload.product_id,
+        buyer_name=payload.buyer_name,
+        buyer_phone=payload.buyer_phone,
+        payment_method=payload.payment_method,
+        status="pending",
+        tx_ref=payload.tx_ref,
+        amount=payload.amount,
+    )
+    try:
+        db.add(order)
+        db.commit()
+        db.refresh(order)
+        return order
+    except IntegrityError as e:
+        # Los triggers lanzan SQLSTATE '45000' con nuestros mensajes
+        db.rollback()
+        msg = str(e.orig)
+        raise ValueError(msg)
+
+
+def list_orders_for_owner(
+    db: Session,
+    owner_user_id: int,
+    *,
+    status: Optional[str] = None,
+    q: Optional[str] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> List[Order]:
+    """
+    Devuelve las órdenes del owner con filtros opcionales.
+    - status: 'pending' | 'paid' | 'cancelled'
+    - q: busca en buyer_name / buyer_phone / tx_ref (ILIKE)
+    - date_from / date_to: rango inclusivo por created_at
+    - limit / offset: paginación (limit 1..200)
+    """
+    shop = _get_active_shop_by_owner(db, owner_user_id)
+    if not shop:
+        return []
+
+    query = db.query(Order).filter(Order.shop_id == shop.id)
+
+    if status:
+        query = query.filter(Order.status == status)
+
+    if q:
+        like = f"%{q.strip()}%"
+        query = query.filter(
+            or_(
+                Order.buyer_name.ilike(like),
+                Order.buyer_phone.ilike(like),
+                Order.tx_ref.ilike(like),
+            )
+        )
+
+    if date_from:
+        query = query.filter(
+            Order.created_at >= datetime.combine(date_from, datetime.min.time())
+        )
+    if date_to:
+        # Inclusivo: < (date_to + 1 día)
+        next_day = datetime.combine(date_to, datetime.min.time()) + timedelta(days=1)
+        query = query.filter(Order.created_at < next_day)
+
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
+
+    return (
+        query.order_by(desc(Order.created_at))
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+
+
+def get_order_by_id_for_owner(db: Session, owner_user_id: int, order_id: int) -> Optional[Order]:
+    shop = _get_active_shop_by_owner(db, owner_user_id)
+    if not shop:
+        return None
+    return (
+        db.query(Order)
+        .filter(Order.id == order_id, Order.shop_id == shop.id)
+        .first()
+    )
+
+
+def update_order(db: Session, owner_user_id: int, order_id: int, payload: OrderUpdate) -> Optional[Order]:
+    """
+    Reglas de estado:
+      - pending -> paid        (OK)  => decrementa stock del producto (1)
+      - pending -> cancelled   (OK)
+      - paid    -> *           (NO)
+      - cancelled -> *         (NO)
+    """
+    order = get_order_by_id_for_owner(db, owner_user_id, order_id)
+    if not order:
+        return None
+
+    try:
+        # Cambio de status con validaciones
+        if payload.status is not None:
+            old = order.status
+            new = payload.status
+
+            allowed = {
+                "pending": {"paid", "cancelled"},
+                "paid": set(),
+                "cancelled": set(),
+            }
+            if new not in allowed.get(old, set()):
+                raise ValueError(f"Transición no permitida: {old} -> {new}")
+
+            # Si pasamos de pending -> paid, bajamos stock del producto
+            if old == "pending" and new == "paid":
+                # Bloqueo optimista: con for update para evitar doble decremento en concurrencia
+                prod = (
+                    db.query(ProductModel)
+                    .filter(ProductModel.id == order.product_id)
+                    .with_for_update()
+                    .first()
+                )
+                if not prod:
+                    raise ValueError("Producto no existe")
+                if prod.stock <= 0:
+                    raise ValueError("No hay stock disponible para confirmar el pago")
+
+                prod.stock = prod.stock - 1
+                db.add(prod)
+
+            order.status = new
+
+        # Actualización de referencia
+        if payload.tx_ref is not None:
+            order.tx_ref = payload.tx_ref
+
+        db.add(order)
+        db.commit()
+        db.refresh(order)
+        return order
+
+    except IntegrityError as e:
+        db.rollback()
+        raise ValueError(str(e.orig))
+    except ValueError:
+        db.rollback()
+        raise
+    except Exception as e:
+        db.rollback()
+        raise ValueError(str(e))
+
+
+def delete_order(db: Session, owner_user_id: int, order_id: int) -> bool:
+    order = get_order_by_id_for_owner(db, owner_user_id, order_id)
+    if not order:
+        return False
+    db.delete(order)
+    db.commit()
+    return True
