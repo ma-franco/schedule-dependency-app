@@ -1,5 +1,3 @@
-en el /frontend/js/main.js te doy mi actual codigo para que lo agregues, y yo no pueda poner algun error, es este el actual.
-
 // /frontend/js/main.js
 
 /* ================== Estado global ================== */
@@ -97,9 +95,9 @@ const searchInput = document.getElementById("search-input");
 const stockToggle = document.getElementById("stockOnlyToggle");
 const slugInput   = document.getElementById("shop-slug");
 
-const buyerNameInput = document.getElementById("buyerName");
+// Datos del comprador (en el modal)
+const buyerNameInput  = document.getElementById("buyerName");
 const buyerPhoneInput = document.getElementById("buyerPhone");
-
 
 let currentProduct = null;
 let currentMethod  = null;
@@ -309,7 +307,7 @@ function renderProducts(products) {
     stock.className = `text-sm font-semibold mb-1 ${product.stock <= 0 ? "text-red-600" : "text-gray-700"}`;
     stock.textContent = product.stock <= 0 ? "Sin stock" : `Stock: ${product.stock}`;
 
-    // (2) Botón WhatsApp usando el número de la tienda si existe
+    // Botón WhatsApp usando el número de la tienda si existe
     const shopWa = toPeruE164(product?.shop?.whatsapp_number) || "51922540931";
     const whatsappBtn = document.createElement("a");
     whatsappBtn.href = `https://wa.me/${shopWa}?text=${encodeURIComponent(
@@ -320,7 +318,7 @@ function renderProducts(products) {
     whatsappBtn.className = "bg-green-500 hover:bg-green-600 text-white font-semibold py-1 px-4 rounded text-center mt-1";
     whatsappBtn.textContent = "WhatsApp";
 
-    // Botón de pago por QR (3) — usa yape/plin/wa de la tienda en el modal
+    // Botón de pago por QR — usa yape/plin/wa de la tienda en el modal
     const qrBtn = document.createElement("button");
     qrBtn.textContent = "Pagar por QR";
     qrBtn.className = `text-white font-semibold py-1 px-4 rounded text-center mt-1 ${product.stock <= 0 ? "bg-gray-400 cursor-not-allowed" : "bg-purple-600 hover:bg-purple-700"}`;
@@ -333,6 +331,11 @@ function renderProducts(products) {
       hideAllQRs();
       qrModal.showModal();
 
+      // Resetea inputs del comprador
+      if (buyerNameInput)  buyerNameInput.value  = "";
+      if (buyerPhoneInput) buyerPhoneInput.value = "";
+
+      // Número a mostrar (yape/plin/wa)
       const payNumberTextEl = document.getElementById("payNumberText");
       const modalNumber = currentProduct?.shop?.yape_number
                        || currentProduct?.shop?.plin_number
@@ -369,7 +372,7 @@ function renderProducts(products) {
   });
 }
 
-/* ================== Link WhatsApp del modal ================== */
+/* ================== Link WhatsApp del modal (solo estado visual) ================== */
 function updateWhatsAppLink() {
   if (!notifyBtn) return;
 
@@ -380,29 +383,89 @@ function updateWhatsAppLink() {
     return;
   }
 
-  const text = `Hola, ya realicé el pago por *${currentMethod}* del producto *${currentProduct.name}* por el monto de S/ ${Number(currentProduct.price).toFixed(2)}. Adjunto comprobante.`;
-  const wa = toPeruE164(currentProduct?.shop?.whatsapp_number) || "51922540931";
-  notifyBtn.href = `https://wa.me/${wa}?text=${encodeURIComponent(text)}`;
+  // Habilitar visualmente. El click real creará la orden (ver listener abajo).
   notifyBtn.textContent = "✅ Ya pagué - Notificar por WhatsApp";
   notifyBtn.className = "block mt-6 w-full text-white py-2 rounded text-center font-semibold bg-green-600 hover:bg-green-700";
   notifyBtn.classList.remove("pointer-events-none", "opacity-50");
 }
 
-/* ================== Cerrar modal tras “Ya pagué” (si existe) ================== */
+/* ================== Crear orden + abrir WhatsApp ================== */
 if (notifyBtn && qrModal) {
-  notifyBtn.addEventListener("click", (e) => {
-    if (!currentProduct || !currentMethod) {
-      e.preventDefault();
+  notifyBtn.addEventListener("click", async (e) => {
+    e.preventDefault(); // siempre manejamos el click aquí
+
+    if (!currentProduct || !currentMethod) return;
+
+    // Validar nombre
+    const buyer_name = (buyerNameInput?.value || "").trim();
+    if (!buyer_name || buyer_name.length < 2) {
+      alert("Por favor ingresa tu nombre (mín. 2 caracteres).");
+      buyerNameInput?.focus();
       return;
     }
-    qrModal.classList.add("dialog-closing");
-    qrModal.addEventListener(
-      "animationend",
-      () => {
-        qrModal.classList.remove("dialog-closing");
-        qrModal.close();
-      },
-      { once: true }
-    );
+    const buyer_phone = (buyerPhoneInput?.value || "").trim();
+
+    // Mapear método UI -> backend PaymentMethod
+    function mapMethod(m) {
+      const s = (m || "").toLowerCase();
+      if (s === "yape") return "yape";
+      if (s === "plin") return "plin";
+      if (s === "izipay") return "card";
+      if (s === "binance") return "bank";
+      return "cash";
+    }
+
+    // bloquear para evitar doble clic
+    notifyBtn.textContent = "Creando orden…";
+    notifyBtn.classList.add("opacity-70", "pointer-events-none");
+
+    try {
+      const payload = {
+        product_id: currentProduct.id,
+        buyer_name,
+        buyer_phone,
+        payment_method: mapMethod(currentMethod),
+        amount: Number(currentProduct.price), // backend lo fuerza al precio real
+        tx_ref: `web-${Date.now()}`,
+      };
+
+      const res = await fetch("http://127.0.0.1:8000/orders/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        const msg = data?.detail || "No se pudo crear la orden.";
+        alert(msg);
+        notifyBtn.textContent = "✅ Ya pagué - Notificar por WhatsApp";
+        notifyBtn.classList.remove("opacity-70", "pointer-events-none");
+        return;
+      }
+
+      // Construir mensaje con #orden
+      const shopWa = toPeruE164(currentProduct?.shop?.whatsapp_number) || "51922540931";
+      const text = `Hola, ya realicé el pago por *${currentMethod}* del producto *${currentProduct.name}* por S/ ${Number(currentProduct.price).toFixed(2)}.\nOrden #${data.id} • Ref: ${payload.tx_ref}`;
+      const waUrl = `https://wa.me/${shopWa}?text=${encodeURIComponent(text)}`;
+
+      // Abrir WhatsApp y cerrar modal
+      window.open(waUrl, "_blank", "noopener,noreferrer");
+
+      qrModal.classList.add("dialog-closing");
+      qrModal.addEventListener(
+        "animationend",
+        () => {
+          qrModal.classList.remove("dialog-closing");
+          qrModal.close();
+        },
+        { once: true }
+      );
+    } catch (err) {
+      console.error(err);
+      alert("Error inesperado creando la orden.");
+      notifyBtn.textContent = "✅ Ya pagué - Notificar por WhatsApp";
+      notifyBtn.classList.remove("opacity-70", "pointer-events-none");
+    }
   });
 }
