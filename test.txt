@@ -1,103 +1,262 @@
-<!-- /frontend/seller/orders.html -->
-<!DOCTYPE html>
-<html lang="es">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Seller | Órdenes</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body class="min-h-screen bg-slate-900 text-white">
-  <div class="max-w-6xl mx-auto p-6 space-y-4">
-    <!-- Header -->
-    <div class="flex items-center justify-between">
-      <h1 class="text-2xl font-bold">Órdenes</h1>
-      <div class="flex items-center gap-2">
-        <a href="/frontend/seller/dashboard.html" class="bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded">← Panel</a>
-        <button id="logoutBtn" class="bg-rose-600 hover:bg-rose-700 px-4 py-2 rounded">Salir</button>
-      </div>
-    </div>
+// /frontend/seller/orders.js
+(() => {
+  const API = "http://127.0.0.1:8000";
 
-    <!-- Info de sesión -->
-    <div class="bg-slate-800 rounded p-4 grid grid-cols-1 sm:grid-cols-3 gap-2">
-      <p><strong>Token:</strong> <span id="tok"></span></p>
-      <p><strong>Role:</strong> <span id="role"></span></p>
-      <p id="apiStatus" class="text-sm text-slate-300"></p>
-    </div>
+  // ===== Auth guard =====
+  const token = localStorage.getItem("auth_token");
+  const type  = (localStorage.getItem("token_type") || "bearer").toLowerCase();
+  const role  = localStorage.getItem("user_role") || "";
+  if (!token) {
+    window.location.replace("/frontend/seller/login.html");
+    return;
+  }
 
-    <!-- Filtros -->
-    <form id="filters" class="bg-slate-800 rounded p-4 grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
-      <div class="md:col-span-2">
-        <label class="block text-sm mb-1">Estado</label>
-        <select id="fStatus" class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2">
-          <option value="">(Todos)</option>
-          <option value="pending">Pendiente</option>
-          <option value="paid">Pagado</option>
-          <option value="cancelled">Cancelado</option>
-        </select>
-      </div>
-      <div class="md:col-span-3">
-        <label class="block text-sm mb-1">Buscar (cliente/teléfono/tx)</label>
-        <input id="fQ" type="text" placeholder="Ej: Juan, 922..., prueba-001"
-          class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2"/>
-      </div>
-      <div class="md:col-span-2">
-        <label class="block text-sm mb-1">Desde</label>
-        <input id="fFrom" type="date"
-          class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2"/>
-      </div>
-      <div class="md:col-span-2">
-        <label class="block text-sm mb-1">Hasta</label>
-        <input id="fTo" type="date"
-          class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2"/>
-      </div>
-      <div class="md:col-span-1">
-        <label class="block text-sm mb-1">Límite</label>
-        <select id="fLimit" class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2">
-          <option value="20">20</option>
-          <option value="50" selected>50</option>
-          <option value="100">100</option>
-        </select>
-      </div>
-      <div class="md:col-span-2 flex gap-2">
-        <button id="btnSearch" type="submit" class="flex-1 bg-indigo-600 hover:bg-indigo-700 px-4 py-2 rounded">Buscar</button>
-        <button id="btnClear" type="button" class="bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded">Limpiar</button>
-      </div>
-    </form>
+  // ===== DOM =====
+  const tokEl      = document.getElementById("tok");
+  const roleEl     = document.getElementById("role");
+  const apiStatus  = document.getElementById("apiStatus");
+  const rowsEl     = document.getElementById("rows");
+  const emptyBox   = document.getElementById("emptyBox");
+  const countInfo  = document.getElementById("countInfo");
 
-    <!-- Tabla -->
-    <div class="bg-slate-800 rounded p-2 overflow-x-auto">
-      <table class="min-w-full text-sm">
-        <thead>
-          <tr class="text-left bg-slate-700/40">
-            <th class="px-3 py-2">ID</th>
-            <th class="px-3 py-2">Fecha</th>
-            <th class="px-3 py-2">Producto</th>
-            <th class="px-3 py-2">Cliente</th>
-            <th class="px-3 py-2">Pago</th>
-            <th class="px-3 py-2">Monto</th>
-            <th class="px-3 py-2">Estado</th>
-            <th class="px-3 py-2">Tx Ref</th>
-            <th class="px-3 py-2 text-right">Acciones</th>
-          </tr>
-        </thead>
-        <tbody id="rows"></tbody>
-      </table>
-      <div id="emptyBox" class="hidden p-6 text-center text-slate-300">
-        No hay órdenes para los filtros seleccionados.
-      </div>
-    </div>
+  const fStatus = document.getElementById("fStatus");
+  const fQ      = document.getElementById("fQ");
+  const fFrom   = document.getElementById("fFrom");
+  const fTo     = document.getElementById("fTo");
+  const fLimit  = document.getElementById("fLimit");
 
-    <!-- Paginación -->
-    <div class="flex items-center justify-between">
-      <div id="countInfo" class="text-slate-300 text-sm"></div>
-      <div class="flex gap-2">
-        <button id="btnPrev" class="bg-slate-700 hover:bg-slate-600 px-3 py-2 rounded">Anterior</button>
-        <button id="btnNext" class="bg-slate-700 hover:bg-slate-600 px-3 py-2 rounded">Siguiente</button>
-      </div>
-    </div>
-  </div>
+  const btnSearch = document.getElementById("btnSearch");
+  const btnClear  = document.getElementById("btnClear");
+  const btnPrev   = document.getElementById("btnPrev");
+  const btnNext   = document.getElementById("btnNext");
+  const logoutBtn = document.getElementById("logoutBtn");
 
-  <script src="./orders.js"></script>
-</body>
-</html>
+  if (tokEl)  tokEl.textContent  = token.slice(0, 12) + "...";
+  if (roleEl) roleEl.textContent = role || "(sin rol)";
+
+  // ===== Estado =====
+  let offset = 0;
+  let lastCount = 0;
+  let productNameById = {}; // mapa product_id -> name
+
+  // ===== Utils =====
+  async function apiFetch(path, opts = {}) {
+    const res = await fetch(`${API}${path}`, {
+      ...opts,
+      headers: {
+        "Authorization": `${type} ${token}`,
+        "Content-Type": "application/json",
+        ...(opts.headers || {}),
+      },
+    });
+    let data = null;
+    try { data = await res.json(); } catch {}
+    return { ok: res.ok, status: res.status, data };
+  }
+
+  function setStatus(msg) {
+    if (apiStatus) apiStatus.textContent = msg || "";
+  }
+
+  function formatDateTime(iso) {
+    if (!iso) return "—";
+    const d = new Date(iso);
+    // Hora local con formato corto
+    return d.toLocaleString("es-PE", {
+      year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit"
+    });
+  }
+
+  function badge(status) {
+    const base = "px-2 py-0.5 rounded text-xs font-semibold";
+    if (status === "paid") return `<span class="${base} bg-emerald-600/80">Pagado</span>`;
+    if (status === "cancelled") return `<span class="${base} bg-rose-600/80">Cancelado</span>`;
+    return `<span class="${base} bg-amber-600/80">Pendiente</span>`;
+  }
+
+  // ===== Cargar mapa de productos (para mostrar nombre) =====
+  async function loadProductsMap() {
+    const r = await apiFetch("/seller/products/");
+    if (r.ok && Array.isArray(r.data)) {
+      productNameById = {};
+      r.data.forEach(p => { productNameById[p.id] = p.name; });
+    }
+  }
+
+  function getProductName(id) {
+    return productNameById[id] || `#${id}`;
+  }
+
+  // ===== Render fila =====
+  function renderRow(o) {
+    const tr = document.createElement("tr");
+    tr.className = "border-b border-slate-700/60 hover:bg-slate-800/60";
+    tr.innerHTML = `
+      <td class="px-3 py-2">#${o.id}</td>
+      <td class="px-3 py-2 whitespace-nowrap">${formatDateTime(o.created_at)}</td>
+      <td class="px-3 py-2">${getProductName(o.product_id)}</td>
+      <td class="px-3 py-2">
+        <div class="leading-5">
+          <div>${o.buyer_name || "—"}</div>
+          <div class="text-slate-400 text-xs">${o.buyer_phone || ""}</div>
+        </div>
+      </td>
+      <td class="px-3 py-2 uppercase">${o.payment_method}</td>
+      <td class="px-3 py-2">S/ ${Number(o.amount).toFixed(2)}</td>
+      <td class="px-3 py-2">${badge(o.status)}</td>
+      <td class="px-3 py-2 break-all">${o.tx_ref || "—"}</td>
+      <td class="px-3 py-2">
+        <div class="flex justify-end gap-2">
+          <button class="btn-pay bg-emerald-600 hover:bg-emerald-700 px-3 py-1 rounded text-sm" ${o.status !== "pending" ? "disabled" : ""}>Pagar</button>
+          <button class="btn-cancel bg-amber-600 hover:bg-amber-700 px-3 py-1 rounded text-sm" ${o.status !== "pending" ? "disabled" : ""}>Cancelar</button>
+          <button class="btn-del bg-rose-600 hover:bg-rose-700 px-3 py-1 rounded text-sm">Borrar</button>
+        </div>
+      </td>
+    `;
+
+    // Handlers
+    const btnPay    = tr.querySelector(".btn-pay");
+    const btnCancel = tr.querySelector(".btn-cancel");
+    const btnDel    = tr.querySelector(".btn-del");
+
+    // Evitar dobles clics:
+    function lock(btns, locked) {
+      btns.forEach(b => { if (b) b.disabled = locked; });
+    }
+
+    btnPay?.addEventListener("click", async () => {
+      lock([btnPay, btnCancel, btnDel], true);
+      const r = await apiFetch(`/seller/orders/${o.id}/paid`, { method: "PATCH" });
+      if (r.ok) {
+        // Actualiza status en la fila
+        o.status = r.data.status;
+        tr.querySelector("td:nth-child(7)").innerHTML = badge(o.status);
+        btnPay.disabled = true;
+        btnCancel.disabled = true;
+      }
+      lock([btnPay, btnCancel, btnDel], false);
+    });
+
+    btnCancel?.addEventListener("click", async () => {
+      lock([btnPay, btnCancel, btnDel], true);
+      const r = await apiFetch(`/seller/orders/${o.id}/cancel`, { method: "PATCH" });
+      if (r.ok) {
+        o.status = r.data.status;
+        tr.querySelector("td:nth-child(7)").innerHTML = badge(o.status);
+        btnPay.disabled = true;
+        btnCancel.disabled = true;
+      }
+      lock([btnPay, btnCancel, btnDel], false);
+    });
+
+    btnDel?.addEventListener("click", async () => {
+      const ok = confirm(`¿Eliminar la orden #${o.id}?`);
+      if (!ok) return;
+      lock([btnPay, btnCancel, btnDel], true);
+      const r = await apiFetch(`/seller/orders/${o.id}`, { method: "DELETE" });
+      if (r.ok || r.status === 204) {
+        tr.remove();
+        lastCount -= 1;
+        updateCountInfo();
+        if (!rowsEl.children.length) emptyBox.classList.remove("hidden");
+      } else {
+        lock([btnPay, btnCancel, btnDel], false);
+      }
+    });
+
+    return tr;
+  }
+
+  function updateCountInfo() {
+    const lim = Number(fLimit.value || 50);
+    const from = offset + 1;
+    const to   = offset + lastCount;
+    countInfo.textContent = lastCount ? `Mostrando ${from}–${to}` : "";
+  }
+
+  // ===== Cargar lista =====
+  async function loadOrders() {
+    setStatus("Cargando…");
+    rowsEl.innerHTML = "";
+    emptyBox.classList.add("hidden");
+
+    const params = new URLSearchParams();
+    const lim = Number(fLimit.value || 50);
+
+    if (fStatus.value) params.set("status", fStatus.value);
+    if ((fQ.value || "").trim()) params.set("q", (fQ.value || "").trim());
+    if (fFrom.value) params.set("date_from", fFrom.value);
+    if (fTo.value) params.set("date_to", fTo.value);
+    params.set("limit", String(lim));
+    params.set("offset", String(offset));
+
+    const r = await apiFetch(`/seller/orders/?${params.toString()}`);
+    if (r.status === 401 || r.status === 403) {
+      setStatus("Token inválido/expirado. Redirigiendo…");
+      localStorage.clear();
+      setTimeout(() => window.location.replace("/frontend/seller/login.html"), 800);
+      return;
+    }
+
+    const list = Array.isArray(r.data) ? r.data : [];
+    lastCount = list.length;
+    updateCountInfo();
+
+    if (!list.length) {
+      emptyBox.classList.remove("hidden");
+      setStatus("Sin resultados.");
+      return;
+    }
+
+    list.forEach(o => rowsEl.appendChild(renderRow(o)));
+    setStatus(`OK (${list.length})`);
+  }
+
+  // ===== Eventos filtros & paginación =====
+  document.getElementById("filters")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    offset = 0;
+    loadOrders();
+  });
+
+  btnClear?.addEventListener("click", () => {
+    fStatus.value = "";
+    fQ.value = "";
+    fFrom.value = "";
+    fTo.value = "";
+    offset = 0;
+    loadOrders();
+  });
+
+  btnPrev?.addEventListener("click", () => {
+    const lim = Number(fLimit.value || 50);
+    offset = Math.max(0, offset - lim);
+    loadOrders();
+  });
+
+  btnNext?.addEventListener("click", () => {
+    const lim = Number(fLimit.value || 50);
+    // Avanzamos si la página actual vino “llena” (hay más resultados)
+    if (lastCount === lim) {
+      offset += lim;
+      loadOrders();
+    }
+  });
+
+  // ===== Logout =====
+  logoutBtn?.addEventListener("click", () => {
+    localStorage.clear();
+    window.location.replace("/frontend/seller/login.html");
+  });
+
+  // ===== Init =====
+  (async function init() {
+    try {
+      await loadProductsMap(); // para mostrar nombre del producto
+      await loadOrders();
+    } catch {
+      setStatus("No se pudo llamar al API.");
+    }
+  })();
+})();
