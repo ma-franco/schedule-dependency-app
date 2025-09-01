@@ -1,205 +1,56 @@
-# crud/order.py
-from typing import List, Optional
-from datetime import date, datetime, timedelta
+import os, uuid
+from flask import Flask, request, jsonify, send_from_directory
+from werkzeug.utils import secure_filename
 
-from sqlalchemy.orm import Session
-from sqlalchemy import desc, or_
-from sqlalchemy.exc import IntegrityError
+# App WSGI
+application = Flask(__name__)
 
-from app.models.order import Order
-from app.models.product import ProductModel
-from app.models.shop import Shop as ShopModel
-from schemas.order import OrderCreate, OrderUpdate
+# Límite y carpeta de subidas
+application.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024  # 5 MB
+UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "static", "uploads")
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
+@application.get("/")
+def root():
+    return "OK: Flask + Passenger (WSGI puro)"
 
-# --- helpers internos ---
+@application.get("/ping")
+def ping():
+    return jsonify(ok=True)
 
-def _get_active_shop_by_owner(db: Session, owner_user_id: int) -> Optional[ShopModel]:
-    return (
-        db.query(ShopModel)
-        .filter(ShopModel.owner_user_id == owner_user_id, ShopModel.is_active == 1)
-        .first()
-    )
+@application.post("/user/login")
+def user_login():
+    # Acepta x-www-form-urlencoded o JSON
+    data = request.form or request.get_json(silent=True) or {}
+    username = (data.get("username") or "").strip()
+    password = (data.get("password") or "").strip()
 
-def _product_belongs_to_shop(db: Session, product_id: int, shop_id: int) -> bool:
-    q = (
-        db.query(ProductModel.id)
-        .filter(ProductModel.id == product_id, ProductModel.shop_id == shop_id)
-        .first()
-    )
-    return q is not None
+    # Demo simple: cámbialo por tu lógica real
+    if username == "admin" and password == "admin":
+        return jsonify(access_token="demo-token", token_type="bearer", role="seller")
+    return jsonify(error="Credenciales inválidas"), 401
 
+@application.post("/upload")
+def upload():
+    file = request.files.get("file")
+    if not file:
+        return jsonify(error="file requerido"), 400
 
-# --- CRUD ---
+    allowed = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
+    if file.mimetype not in allowed:
+        return jsonify(error="Formato no permitido (JPG/PNG/WEBP)"), 400
 
-def create_order(db: Session, owner_user_id: int, payload: OrderCreate) -> Order:
-    shop = _get_active_shop_by_owner(db, owner_user_id)
-    if not shop:
-        raise ValueError("No tienes una tienda activa")
+    fname = f"{uuid.uuid4().hex}{allowed[file.mimetype]}"
+    fname = secure_filename(fname)
+    path = os.path.join(UPLOAD_DIR, fname)
+    file.save(path)
 
-    # Seguridad adicional (además del trigger): el producto debe ser de tu tienda
-    if not _product_belongs_to_shop(db, payload.product_id, shop.id):
-        raise ValueError("El producto no pertenece a tu tienda")
+    url = f"/static/uploads/{fname}"
+    return jsonify(url=url,
+                   filename=fname,
+                   size=os.path.getsize(path),
+                   content_type=file.mimetype), 201
 
-    order = Order(
-        shop_id=shop.id,
-        product_id=payload.product_id,
-        buyer_name=payload.buyer_name,
-        buyer_phone=payload.buyer_phone,
-        payment_method=payload.payment_method,
-        status="pending",
-        tx_ref=payload.tx_ref,
-        amount=payload.amount,
-    )
-    try:
-        db.add(order)
-        db.commit()
-        db.refresh(order)
-        return order
-    except IntegrityError as e:
-        # Los triggers lanzan SQLSTATE '45000' con nuestros mensajes
-        db.rollback()
-        msg = str(e.orig)
-        raise ValueError(msg)
-
-
-def list_orders_for_owner(
-    db: Session,
-    owner_user_id: int,
-    *,
-    status: Optional[str] = None,
-    q: Optional[str] = None,
-    date_from: Optional[date] = None,
-    date_to: Optional[date] = None,
-    limit: int = 50,
-    offset: int = 0,
-) -> List[Order]:
-    """
-    Devuelve las órdenes del owner con filtros opcionales.
-    - status: 'pending' | 'paid' | 'cancelled'
-    - q: busca en buyer_name / buyer_phone / tx_ref (ILIKE)
-    - date_from / date_to: rango inclusivo por created_at
-    - limit / offset: paginación (limit 1..200)
-    """
-    shop = _get_active_shop_by_owner(db, owner_user_id)
-    if not shop:
-        return []
-
-    query = db.query(Order).filter(Order.shop_id == shop.id)
-
-    if status:
-        query = query.filter(Order.status == status)
-
-    if q:
-        like = f"%{q.strip()}%"
-        query = query.filter(
-            or_(
-                Order.buyer_name.ilike(like),
-                Order.buyer_phone.ilike(like),
-                Order.tx_ref.ilike(like),
-            )
-        )
-
-    if date_from:
-        query = query.filter(
-            Order.created_at >= datetime.combine(date_from, datetime.min.time())
-        )
-    if date_to:
-        # Inclusivo: < (date_to + 1 día)
-        next_day = datetime.combine(date_to, datetime.min.time()) + timedelta(days=1)
-        query = query.filter(Order.created_at < next_day)
-
-    limit = max(1, min(limit, 200))
-    offset = max(0, offset)
-
-    return (
-        query.order_by(desc(Order.created_at))
-        .offset(offset)
-        .limit(limit)
-        .all()
-    )
-
-
-def get_order_by_id_for_owner(db: Session, owner_user_id: int, order_id: int) -> Optional[Order]:
-    shop = _get_active_shop_by_owner(db, owner_user_id)
-    if not shop:
-        return None
-    return (
-        db.query(Order)
-        .filter(Order.id == order_id, Order.shop_id == shop.id)
-        .first()
-    )
-
-
-def update_order(db: Session, owner_user_id: int, order_id: int, payload: OrderUpdate) -> Optional[Order]:
-    """
-    Reglas de estado:
-      - pending -> paid        (OK)  => decrementa stock del producto (1)
-      - pending -> cancelled   (OK)
-      - paid    -> *           (NO)
-      - cancelled -> *         (NO)
-    """
-    order = get_order_by_id_for_owner(db, owner_user_id, order_id)
-    if not order:
-        return None
-
-    try:
-        # Cambio de status con validaciones
-        if payload.status is not None:
-            old = order.status
-            new = payload.status
-
-            allowed = {
-                "pending": {"paid", "cancelled"},
-                "paid": set(),
-                "cancelled": set(),
-            }
-            if new not in allowed.get(old, set()):
-                raise ValueError(f"Transición no permitida: {old} -> {new}")
-
-            # Si pasamos de pending -> paid, bajamos stock del producto
-            if old == "pending" and new == "paid":
-                # Bloqueo optimista: con for update para evitar doble decremento en concurrencia
-                prod = (
-                    db.query(ProductModel)
-                    .filter(ProductModel.id == order.product_id)
-                    .with_for_update()
-                    .first()
-                )
-                if not prod:
-                    raise ValueError("Producto no existe")
-                if prod.stock <= 0:
-                    raise ValueError("No hay stock disponible para confirmar el pago")
-
-                prod.stock = prod.stock - 1
-                db.add(prod)
-
-            order.status = new
-
-        # Actualización de referencia
-        if payload.tx_ref is not None:
-            order.tx_ref = payload.tx_ref
-
-        db.add(order)
-        db.commit()
-        db.refresh(order)
-        return order
-
-    except IntegrityError as e:
-        db.rollback()
-        raise ValueError(str(e.orig))
-    except ValueError:
-        db.rollback()
-        raise
-    except Exception as e:
-        db.rollback()
-        raise ValueError(str(e))
-
-
-def delete_order(db: Session, owner_user_id: int, order_id: int) -> bool:
-    order = get_order_by_id_for_owner(db, owner_user_id, order_id)
-    if not order:
-        return False
-    db.delete(order)
-    db.commit()
-    return True
+@application.get("/static/uploads/<path:name>")
+def serve_upload(name):
+    return send_from_directory(UPLOAD_DIR, name)
